@@ -78,7 +78,8 @@ func ParseFlags() (config Settings)  {
 	if config.VERSION != "" {
 		fmt.Printf("version %s ", config.VERSION)
 	}
-	fmt.Printf("at %s \n", config.WEB_LISTENER_ADDRESS)
+	//fmt.Printf("at %s", config.WEB_LISTENER_ADDRESS)
+  fmt.Printf("\n")
 
 
 	// END.
