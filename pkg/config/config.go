@@ -11,7 +11,7 @@ import (
 var CompileVersion string
 
 type Settings struct {
-	APP_NAME, VERSION, DAEMON_LISTENER_ADDRESS, DAEMON_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, PROXY_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE, RACE_TYPE string
+	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, PROXY_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE, RACE_TYPE string
 	PG_PORT int
 	AVERAGE_RESULTS, VARIABLE_DISTANCE_RACE bool
 	DB_SAVE_INTERVAL_DURATION time.Duration
@@ -58,10 +58,10 @@ func ParseFlags() (config Settings)  {
 	flag.Parse()
 
 	//делаем хеш от порта коллектора чтобы использовать в уникальном названии файла бд
-	config.DAEMON_LISTENER_ADDRESS_HASH = hash(config.DAEMON_LISTENER_ADDRESS)
+	config.WEB_LISTENER_ADDRESS_HASH = hash(config.WEB_LISTENER_ADDRESS)
 
 	//путь к файлу бд
-	config.DB_FULL_FILE_PATH = fmt.Sprintf(config.DB_FILE_PATH+"/"+config.APP_NAME+"."+config.DAEMON_LISTENER_ADDRESS_HASH+".db."+config.DB_TYPE)
+	config.DB_FULL_FILE_PATH = fmt.Sprintf(config.DB_FILE_PATH+"/"+config.APP_NAME+"."+config.WEB_LISTENER_ADDRESS_HASH+".db."+config.DB_TYPE)
 
 	//set version from CompileVersion variable at build time
 	config.VERSION = CompileVersion 
@@ -78,7 +78,7 @@ func ParseFlags() (config Settings)  {
 	if config.VERSION != "" {
 		fmt.Printf("version %s ", config.VERSION)
 	}
-	//fmt.Printf("at %s", config.WEB_LISTENER_ADDRESS)
+	fmt.Printf("at %s", config.WEB_LISTENER_ADDRESS)
   fmt.Printf("\n")
 
 
