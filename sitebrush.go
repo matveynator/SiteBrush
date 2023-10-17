@@ -1,7 +1,7 @@
 package main
 
 import (
-	"time"
+//	"time"
 	"sitebrush/pkg/config"
 	"sitebrush/pkg/database"
 	"sitebrush/pkg/mylog"
@@ -20,8 +20,8 @@ func main() {
   go webserver.Run(settings)
   browser.Run(settings)
 
-	for {
-		time.Sleep(10 * time.Second)	
-	}
+//	for {
+//		time.Sleep(10 * time.Second)	
+//	}
 
 }
