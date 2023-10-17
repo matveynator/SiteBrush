@@ -40,6 +40,7 @@ do
  if [ "$?" == "0" ]
  then
    mkdir -p ../binaries/${version}/gui/${target_os_name}/${arch}
+   chmod +x ${execution_file}
    mv ${execution_file} ../binaries/${version}/gui/${target_os_name}/${arch}/
    echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_gui.go"
  fi
@@ -50,6 +51,7 @@ do
     if [ "$?" == "0" ]
     then
       mkdir -p ../binaries/${version}/no-gui/${target_os_name}/${arch}
+      chmod +x ${execution_file}
       mv ${execution_file} ../binaries/${version}/no-gui/${target_os_name}/${arch}/
       echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/no-gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_no_gui.go"
     fi

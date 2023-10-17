@@ -34,7 +34,7 @@ func ParseFlags() (config Settings)  {
     config.GUI = false
   }
 
-  flag.IntVar(&config.WEB_PORT, "web-port", 80, "Web server port on which HTTP web interface will be running.")
+  flag.IntVar(&config.WEB_PORT, "web-port", 2444, "Web server port on which HTTP web interface will be running.")
 	flag.StringVar(&config.TIME_ZONE, "timezone", "UTC", "Set race timezone. Example: Europe/Paris, Africa/Dakar, UTC, https://en.wikipedia.org/wiki/List_of_tz_database_time_zones")
 
 	//db
