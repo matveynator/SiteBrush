@@ -18,7 +18,7 @@ func webhandler(w http.ResponseWriter, r *http.Request) {
   }
 }
 
-func Run(config Config.Settings ) {
+func Run(config Config.Settings) {
   http.HandleFunc("/", webhandler)
   err := http.ListenAndServe(config.WEB_LISTENER_ADDRESS, nil)
   if err != nil {

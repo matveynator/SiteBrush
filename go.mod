@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/genjidb/genji v0.15.2
 	github.com/jackc/pgx/v5 v5.4.3
+	github.com/webview/webview_go v0.0.0-20230901181450-5a14030a9070
 	modernc.org/sqlite v1.26.0
 )
 

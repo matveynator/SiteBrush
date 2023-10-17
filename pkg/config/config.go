@@ -11,9 +11,8 @@ import (
 var CompileVersion string
 
 type Settings struct {
-	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, PROXY_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE, RACE_TYPE string
-	PG_PORT int
-	AVERAGE_RESULTS, VARIABLE_DISTANCE_RACE bool
+	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, LOCALHOST_LISTENER_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE string
+	PG_PORT, WEB_PORT int
 	DB_SAVE_INTERVAL_DURATION time.Duration
 }
 
@@ -38,7 +37,7 @@ func ParseFlags() (config Settings)  {
 	flagVersion := flag.Bool("version", false, "Output version information")
 
 
-	flag.StringVar(&config.WEB_LISTENER_ADDRESS, "web", "0.0.0.0:80", "Please specify the IP address and port number on which HTTP web interface will be running.")
+  flag.IntVar(&config.WEB_PORT, "web-port", 80, "Web server port on which HTTP web interface will be running.")
 	flag.StringVar(&config.TIME_ZONE, "timezone", "UTC", "Set race timezone. Example: Europe/Paris, Africa/Dakar, UTC, https://en.wikipedia.org/wiki/List_of_tz_database_time_zones")
 
 	//db
@@ -56,6 +55,9 @@ func ParseFlags() (config Settings)  {
 
 	//process all flags
 	flag.Parse()
+
+  config.WEB_LISTENER_ADDRESS = fmt.Sprintf("0.0.0.0:%d", config.WEB_PORT)
+  config.LOCALHOST_LISTENER_ADDRESS = fmt.Sprintf("127.0.0.1:%d", config.WEB_PORT)
 
 	//делаем хеш от порта коллектора чтобы использовать в уникальном названии файла бд
 	config.WEB_LISTENER_ADDRESS_HASH = hash(config.WEB_LISTENER_ADDRESS)

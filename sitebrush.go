@@ -6,6 +6,8 @@ import (
 	"sitebrush/pkg/database"
 	"sitebrush/pkg/mylog"
   "sitebrush/pkg/webserver"
+  "sitebrush/pkg/browser"
+  
 )
 
 func main() {
@@ -16,6 +18,7 @@ func main() {
 	go MyLog.ErrorLogWorker()
 	go database.Run(settings)
   go webserver.Run(settings)
+  browser.Run(settings)
 
 	for {
 		time.Sleep(10 * time.Second)	
