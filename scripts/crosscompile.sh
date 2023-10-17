@@ -41,7 +41,7 @@ do
  then
    mkdir -p ../binaries/${version}/gui/${target_os_name}/${arch}
    mv ${execution_file} ../binaries/${version}/gui/${target_os_name}/${arch}/
-   echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_no_gui.go"
+   echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_gui.go"
  fi
 
     #compile non gui app:
