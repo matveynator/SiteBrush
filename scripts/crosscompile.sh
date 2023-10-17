@@ -4,7 +4,6 @@ git_root_path=`git rev-parse --show-toplevel`
 execution_file="sitebrush"
 
 go mod download
-go mod vendor
 go mod tidy
 
 echo "Performing tests on all modules..."
