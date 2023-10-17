@@ -1,6 +1,4 @@
-// +build android aix dragonfly freebsd illumos js netbsd openbsd plan9 solaris zos
-
-
+// +build android aix dragonfly freebsd illumos ios js netbsd openbsd plan9 solaris  zos
 
 package main
 
