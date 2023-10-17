@@ -1,3 +1,5 @@
+//go:build ( ( darwin && amd64 ) || ( darwin && arm64 ) || ( darwin && 386 ) || ( linux && amd64 ) || ( linux && arm64 ) || ( linux && 386 ) || windows )
+
 package browser
 
 import (

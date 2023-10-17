@@ -6,6 +6,7 @@ import (
 	"flag"
 	"time"
 	"hash/fnv"
+  "runtime"
 
 )
 var CompileVersion string
@@ -14,16 +15,7 @@ type Settings struct {
 	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, LOCALHOST_LISTENER_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE string
 	PG_PORT, WEB_PORT int
 	DB_SAVE_INTERVAL_DURATION time.Duration
-}
-
-func isFlagPassed(name string) bool {
-	found := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			found = true
-		}
-	})
-	return found
+  GUI bool
 }
 
 func hash(s string) string {
@@ -36,6 +28,11 @@ func ParseFlags() (config Settings)  {
 	config.APP_NAME = "sitebrush"
 	flagVersion := flag.Bool("version", false, "Output version information")
 
+  if runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+    flag.BoolVar(&config.GUI, "gui", false, "Start application with graphic user interface (GUI).")
+  } else {
+    config.GUI = false
+  }
 
   flag.IntVar(&config.WEB_PORT, "web-port", 80, "Web server port on which HTTP web interface will be running.")
 	flag.StringVar(&config.TIME_ZONE, "timezone", "UTC", "Set race timezone. Example: Europe/Paris, Africa/Dakar, UTC, https://en.wikipedia.org/wiki/List_of_tz_database_time_zones")
