@@ -35,25 +35,25 @@ do
     [ "$os" == "darwin" ] && target_os_name="mac"
 
  #compile gui app:
- GOOS=${os} GOARCH=${arch} go build -ldflags "${build_flags}-X sitebrush/pkg/config.CompileVersion=${version}" -o ${execution_file} ../sitebrush_gui.go 2> /dev/null
+ GOOS=${os} GOARCH=${arch} go build -ldflags "${build_flags}-X sitebrush/pkg/config.CompileVersion=${version}" -o ${execution_file} ../sitebrush-with-gui.go 2> /dev/null
 
  if [ "$?" == "0" ]
  then
    mkdir -p ../binaries/${version}/gui/${target_os_name}/${arch}
    chmod +x ${execution_file}
    mv ${execution_file} ../binaries/${version}/gui/${target_os_name}/${arch}/
-   echo "GOOS=${os} GOARCH=${arch} go build -ldflags "${build_flags}-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_gui.go"
+   echo "GOOS=${os} GOARCH=${arch} go build -ldflags "${build_flags}-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/gui/${target_os_name}/${arch}/${execution_file} ../sitebrush-with-gui.go"
  fi
 
     #compile non gui app:
-    GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ${execution_file} ../sitebrush_no_gui.go 2> /dev/null
+    GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ${execution_file} ../sitebrush.go 2> /dev/null
 
     if [ "$?" == "0" ]
     then
       mkdir -p ../binaries/${version}/no-gui/${target_os_name}/${arch}
       chmod +x ${execution_file}
       mv ${execution_file} ../binaries/${version}/no-gui/${target_os_name}/${arch}/
-      echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/no-gui/${target_os_name}/${arch}/${execution_file} ../sitebrush_no_gui.go"
+      echo "GOOS=${os} GOARCH=${arch} go build -ldflags "-X sitebrush/pkg/config.CompileVersion=${version}" -o ../binaries/${version}/no-gui/${target_os_name}/${arch}/${execution_file} ../sitebrush.go"
     fi
 
   done
