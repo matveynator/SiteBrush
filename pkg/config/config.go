@@ -12,7 +12,7 @@ import (
 var CompileVersion string
 
 type Settings struct {
-	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, LOCALHOST_LISTENER_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE string
+	APP_NAME, VERSION, WEB_LISTENER_ADDRESS_HASH, WEB_LISTENER_ADDRESS, WEB_FILE_PATH, WEB_INDEX_FILE, LOCALHOST_LISTENER_ADDRESS, DB_TYPE, DB_FILE_PATH, DB_FULL_FILE_PATH, PG_HOST, PG_USER, PG_PASS, PG_DB_NAME, PG_SSL, TIME_ZONE string
 	PG_PORT, WEB_PORT int
 	DB_SAVE_INTERVAL_DURATION time.Duration
   GUI bool
@@ -34,7 +34,11 @@ func ParseFlags() (config Settings)  {
     config.GUI = false
   }
 
+  //web
   flag.IntVar(&config.WEB_PORT, "web-port", 2444, "Web server port on which HTTP web interface will be running.")
+  flag.StringVar(&config.WEB_FILE_PATH, "web-path", "public_html", "Provide path to writable directory to store public_html website data.")
+  flag.StringVar(&config.WEB_INDEX_FILE, "web-index-file", "index.html", "Provide web index file name.")
+
 	flag.StringVar(&config.TIME_ZONE, "timezone", "UTC", "Set race timezone. Example: Europe/Paris, Africa/Dakar, UTC, https://en.wikipedia.org/wiki/List_of_tz_database_time_zones")
 
 	//db

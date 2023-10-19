@@ -2,12 +2,14 @@ package webserver
 
 import (
   "fmt"
+  "strings"
   "net/http"
   "os"
+  "sitebrush/pkg/config"
 )
 
-// isFileExist проверяет, существует ли файл в локальной директории.
-func isFileExist(fileName string) bool {
+// checkFileExist проверяет, существует ли файл в локальной директории.
+func checkFileExist(fileName string) bool {
   _, err := os.Stat(fileName)
   return !os.IsNotExist(err)
 }
@@ -61,12 +63,34 @@ func showProfileFunction(responseWriter http.ResponseWriter, request *http.Reque
 func logoutFunction(responseWriter http.ResponseWriter, request *http.Request) {}
 
 
-func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
-  fileName := request.URL.Path[1:] // Получение имени файла из URL
+func handleRequest(config Config.Settings, responseWriter http.ResponseWriter, request *http.Request) {
+
+  fileName := request.URL.Path // Получение имени файла из URL
+
+  if fileName == "" {
+    fileName = "/"
+  }
+
+  // Проверяем, заканчивается ли fileName на косую черту
+  isDirectory := strings.HasSuffix(fileName, "/")
+
+  if isDirectory {
+    // Это каталог; вы можете обработать его соответственно
+    // Например, вы можете предоставить индексный файл внутри каталога.
+    if fileName == "/" {
+      fileName = fmt.Sprintf("%s%s%s", config.WEB_FILE_PATH, fileName, config.WEB_INDEX_FILE)
+    } else {
+      fileName = fmt.Sprintf("%s%s/%s", config.WEB_FILE_PATH, fileName, config.WEB_INDEX_FILE)
+    }
+  } else {
+    // Это файл; вы можете обработать его по-другому, если нужно
+    fileName = fmt.Sprintf("%s%s", config.WEB_FILE_PATH, fileName)
+  }
+
   queryParam := request.URL.RawQuery
 
   switch {
-  case isFileExist(fileName) && queryParam == "":
+  case checkFileExist(fileName) && queryParam == "":
     http.ServeFile(responseWriter, request, fileName)
 
   case queryParam == "login":
@@ -75,16 +99,16 @@ func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
   case queryParam == "edit":
     editFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && queryParam == "delete":
+  case checkFileExist(fileName) && queryParam == "delete":
     deleteRevisionFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && queryParam == "revisions":
+  case checkFileExist(fileName) && queryParam == "revisions":
     showRevisionsFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && queryParam == "subpages":
+  case checkFileExist(fileName) && queryParam == "subpages":
     showSubpagesFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && queryParam == "properties":
+  case checkFileExist(fileName) && queryParam == "properties":
     editPropertiesFunction(responseWriter, request, fileName)
 
   case queryParam == "freeze" && checkUserLoggedIn(request):
