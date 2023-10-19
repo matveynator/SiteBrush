@@ -34,7 +34,3 @@ cmd/genji/genji
 
 # gopls log
 gopls.log
-
-# go.work
-go.work
-go.work.sum

@@ -2,9 +2,9 @@ package document
 
 import (
 	"encoding/base64"
-	"fmt"
 	"strconv"
 
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
@@ -15,7 +15,7 @@ func CastAs(v types.Value, t types.ValueType) (types.Value, error) {
 	}
 
 	switch t {
-	case types.BooleanValue:
+	case types.BoolValue:
 		return CastAsBool(v)
 	case types.IntegerValue:
 		return CastAsInteger(v)
@@ -31,7 +31,7 @@ func CastAs(v types.Value, t types.ValueType) (types.Value, error) {
 		return CastAsDocument(v)
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as %q", v.Type(), t)
+	return nil, stringutil.Errorf("cannot cast %s as %q", v.Type(), t)
 }
 
 // CastAsBool casts according to the following rules:
@@ -46,19 +46,19 @@ func CastAsBool(v types.Value) (types.Value, error) {
 	}
 
 	switch v.Type() {
-	case types.BooleanValue:
+	case types.BoolValue:
 		return v, nil
 	case types.IntegerValue:
-		return types.NewBoolValue(types.As[int64](v) != 0), nil
+		return types.NewBoolValue(v.V().(int64) != 0), nil
 	case types.TextValue:
-		b, err := strconv.ParseBool(types.As[string](v))
+		b, err := strconv.ParseBool(v.V().(string))
 		if err != nil {
-			return nil, fmt.Errorf(`cannot cast %q as bool: %w`, v.V(), err)
+			return nil, stringutil.Errorf(`cannot cast %q as bool: %w`, v.V(), err)
 		}
 		return types.NewBoolValue(b), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as bool", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as bool", v.Type())
 }
 
 // CastAsInteger casts according to the following rules:
@@ -78,31 +78,31 @@ func CastAsInteger(v types.Value) (types.Value, error) {
 	switch v.Type() {
 	case types.IntegerValue:
 		return v, nil
-	case types.BooleanValue:
-		if types.As[bool](v) {
+	case types.BoolValue:
+		if v.V().(bool) {
 			return types.NewIntegerValue(1), nil
 		}
 		return types.NewIntegerValue(0), nil
 	case types.DoubleValue:
-		f := types.As[float64](v)
+		f := v.V().(float64)
 		if f > 0 && int64(f) < 0 {
-			return nil, fmt.Errorf("integer out of range")
+			return nil, stringutil.Errorf("integer out of range")
 		}
 		return types.NewIntegerValue(int64(f)), nil
 	case types.TextValue:
-		i, err := strconv.ParseInt(types.As[string](v), 10, 64)
+		i, err := strconv.ParseInt(v.V().(string), 10, 64)
 		if err != nil {
 			intErr := err
-			f, err := strconv.ParseFloat(types.As[string](v), 64)
+			f, err := strconv.ParseFloat(v.V().(string), 64)
 			if err != nil {
-				return nil, fmt.Errorf(`cannot cast %q as integer: %w`, v.V(), intErr)
+				return nil, stringutil.Errorf(`cannot cast %q as integer: %w`, v.V(), intErr)
 			}
 			i = int64(f)
 		}
 		return types.NewIntegerValue(i), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as integer", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as integer", v.Type())
 }
 
 // CastAsDouble casts according to the following rules:
@@ -120,16 +120,16 @@ func CastAsDouble(v types.Value) (types.Value, error) {
 	case types.DoubleValue:
 		return v, nil
 	case types.IntegerValue:
-		return types.NewDoubleValue(float64(types.As[int64](v))), nil
+		return types.NewDoubleValue(float64(v.V().(int64))), nil
 	case types.TextValue:
-		f, err := strconv.ParseFloat(types.As[string](v), 64)
+		f, err := strconv.ParseFloat(v.V().(string), 64)
 		if err != nil {
-			return nil, fmt.Errorf(`cannot cast %q as double: %w`, v.V(), err)
+			return nil, stringutil.Errorf(`cannot cast %q as double: %w`, v.V(), err)
 		}
 		return types.NewDoubleValue(f), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as double", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as double", v.Type())
 }
 
 // CastAsText returns a JSON representation of v.
@@ -144,7 +144,7 @@ func CastAsText(v types.Value) (types.Value, error) {
 	case types.TextValue:
 		return v, nil
 	case types.BlobValue:
-		return types.NewTextValue(base64.StdEncoding.EncodeToString(types.As[[]byte](v))), nil
+		return types.NewTextValue(base64.StdEncoding.EncodeToString(v.V().([]byte))), nil
 	}
 
 	d, err := v.MarshalJSON()
@@ -172,7 +172,7 @@ func CastAsBlob(v types.Value) (types.Value, error) {
 
 	if v.Type() == types.TextValue {
 		// if the string starts with \x, read it as hex
-		s := types.As[string](v)
+		s := v.V().(string)
 		b, err := base64.StdEncoding.DecodeString(s)
 		if err != nil {
 			return nil, err
@@ -181,7 +181,7 @@ func CastAsBlob(v types.Value) (types.Value, error) {
 		return types.NewBlobValue(b), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as blob", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as blob", v.Type())
 }
 
 // CastAsArray casts according to the following rules:
@@ -199,15 +199,15 @@ func CastAsArray(v types.Value) (types.Value, error) {
 
 	if v.Type() == types.TextValue {
 		var vb ValueBuffer
-		err := vb.UnmarshalJSON([]byte(types.As[string](v)))
+		err := vb.UnmarshalJSON([]byte(v.V().(string)))
 		if err != nil {
-			return nil, fmt.Errorf(`cannot cast %q as array: %w`, v.V(), err)
+			return nil, stringutil.Errorf(`cannot cast %q as array: %w`, v.V(), err)
 		}
 
 		return types.NewArrayValue(&vb), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as array", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as array", v.Type())
 }
 
 // CastAsDocument casts according to the following rules:
@@ -225,13 +225,13 @@ func CastAsDocument(v types.Value) (types.Value, error) {
 
 	if v.Type() == types.TextValue {
 		var fb FieldBuffer
-		err := fb.UnmarshalJSON([]byte(types.As[string](v)))
+		err := fb.UnmarshalJSON([]byte(v.V().(string)))
 		if err != nil {
-			return nil, fmt.Errorf(`cannot cast %q as document: %w`, v.V(), err)
+			return nil, stringutil.Errorf(`cannot cast %q as document: %w`, v.V(), err)
 		}
 
 		return types.NewDocumentValue(&fb), nil
 	}
 
-	return nil, fmt.Errorf("cannot cast %s as document", v.Type())
+	return nil, stringutil.Errorf("cannot cast %s as document", v.Type())
 }

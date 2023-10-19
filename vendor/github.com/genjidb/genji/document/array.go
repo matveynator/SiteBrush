@@ -2,8 +2,14 @@ package document
 
 import (
 	"github.com/buger/jsonparser"
-	"github.com/cockroachdb/errors"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/types"
+)
+
+// ErrValueNotFound must be returned by Array implementations, when calling the GetByIndex method and
+// the index wasn't found in the array.
+var (
+	ErrValueNotFound = errors.New("value not found")
 )
 
 // ArrayLength returns the length of an array.
@@ -49,6 +55,7 @@ func ArrayContains(a types.Array, v types.Value) (bool, error) {
 // ValueBuffer is an array that holds values in memory.
 type ValueBuffer struct {
 	Values []types.Value
+	err    error
 }
 
 // NewValueBuffer creates a buffer of values.
@@ -71,7 +78,7 @@ func (vb *ValueBuffer) Iterate(fn func(i int, value types.Value) error) error {
 // GetByIndex returns a value set at the given index. If the index is out of range it returns an error.
 func (vb *ValueBuffer) GetByIndex(i int) (types.Value, error) {
 	if i >= len(vb.Values) {
-		return nil, types.ErrFieldNotFound
+		return nil, ErrFieldNotFound
 	}
 
 	return vb.Values[i], nil
@@ -95,7 +102,7 @@ func (vb *ValueBuffer) Append(v types.Value) *ValueBuffer {
 // ScanArray copies all the values of a to the buffer.
 func (vb *ValueBuffer) ScanArray(a types.Array) error {
 	return a.Iterate(func(i int, v types.Value) error {
-		vb = vb.Append(v)
+		vb.Values = append(vb.Values, v)
 		return nil
 	})
 }
@@ -103,14 +110,43 @@ func (vb *ValueBuffer) ScanArray(a types.Array) error {
 // Copy deep copies all the values from the given array.
 // If a value is a document or an array, it will be stored as a *FieldBuffer or *ValueBuffer respectively.
 func (vb *ValueBuffer) Copy(a types.Array) error {
-	return a.Iterate(func(i int, value types.Value) error {
-		v, err := CloneValue(value)
-		if err != nil {
-			return err
-		}
-		vb.Append(v)
+	err := vb.ScanArray(a)
+	if err != nil {
+		return err
+	}
+
+	if len(vb.Values) == 0 {
 		return nil
-	})
+	}
+
+	for i, v := range vb.Values {
+		switch v.Type() {
+		case types.DocumentValue:
+			var buf FieldBuffer
+			err = buf.Copy(v.V().(types.Document))
+			if err != nil {
+				return err
+			}
+
+			err = vb.Replace(i, types.NewDocumentValue(&buf))
+			if err != nil {
+				return err
+			}
+		case types.ArrayValue:
+			var buf ValueBuffer
+			err = buf.Copy(v.V().(types.Array))
+			if err != nil {
+				return err
+			}
+
+			err = vb.Replace(i, types.NewArrayValue(&buf))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // Apply a function to all the values of the buffer.
@@ -122,10 +158,10 @@ func (vb *ValueBuffer) Apply(fn func(p Path, v types.Value) (types.Value, error)
 
 		switch v.Type() {
 		case types.DocumentValue:
-			buf, ok := types.Is[*FieldBuffer](v)
+			buf, ok := v.V().(*FieldBuffer)
 			if !ok {
 				buf = NewFieldBuffer()
-				err := buf.Copy(types.As[types.Document](v))
+				err := buf.Copy(v.V().(types.Document))
 				if err != nil {
 					return err
 				}
@@ -139,10 +175,10 @@ func (vb *ValueBuffer) Apply(fn func(p Path, v types.Value) (types.Value, error)
 			}
 			vb.Values[i] = types.NewDocumentValue(buf)
 		case types.ArrayValue:
-			buf, ok := types.Is[*ValueBuffer](v)
+			buf, ok := v.V().(*ValueBuffer)
 			if !ok {
 				buf = NewValueBuffer()
-				err := buf.Copy(types.As[types.Array](v))
+				err := buf.Copy(v.V().(types.Array))
 				if err != nil {
 					return err
 				}
@@ -171,7 +207,7 @@ func (vb *ValueBuffer) Apply(fn func(p Path, v types.Value) (types.Value, error)
 // Replace the value of the index by v.
 func (vb *ValueBuffer) Replace(index int, v types.Value) error {
 	if len(vb.Values) <= index {
-		return types.ErrFieldNotFound
+		return ErrFieldNotFound
 	}
 
 	vb.Values[index] = v

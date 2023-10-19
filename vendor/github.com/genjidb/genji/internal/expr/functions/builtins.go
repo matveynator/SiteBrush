@@ -1,12 +1,12 @@
 package functions
 
 import (
-	"fmt"
-
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/expr"
+	"github.com/genjidb/genji/internal/stringutil"
+	"github.com/genjidb/genji/internal/tree"
 	"github.com/genjidb/genji/types"
 )
 
@@ -60,13 +60,6 @@ var builtinFunctions = Definitions{
 			return &Avg{Expr: args[0]}, nil
 		},
 	},
-	"len": &definition{
-		name:  "len",
-		arity: 1,
-		constructorFn: func(args ...expr.Expr) (expr.Function, error) {
-			return &Len{Expr: args[0]}, nil
-		},
-	},
 }
 
 // BuiltinDefinitions returns a map of builtin functions.
@@ -105,7 +98,7 @@ func (t *TypeOf) IsEqual(other expr.Expr) bool {
 func (t *TypeOf) Params() []expr.Expr { return []expr.Expr{t.Expr} }
 
 func (t *TypeOf) String() string {
-	return fmt.Sprintf("typeof(%v)", t.Expr)
+	return stringutil.Sprintf("typeof(%v)", t.Expr)
 }
 
 // PK represents the pk() function.
@@ -119,17 +112,17 @@ func (k *PK) Eval(env *environment.Environment) (types.Value, error) {
 		return expr.NullLiteral, nil
 	}
 
-	dpk, ok := env.GetKey()
+	dpk, ok := env.Get(environment.DocPKKey)
 	if !ok {
 		return expr.NullLiteral, nil
 	}
 
-	vs, err := dpk.Decode()
+	vs, err := tree.Key(dpk.V().([]byte)).Decode()
 	if err != nil {
 		return expr.NullLiteral, err
 	}
 
-	info, err := env.GetCatalog().GetTableInfo(types.As[string](tableName))
+	info, err := env.GetCatalog().GetTableInfo(tableName.V().(string))
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +206,7 @@ func (c *Count) String() string {
 		return "COUNT(*)"
 	}
 
-	return fmt.Sprintf("COUNT(%v)", c.Expr)
+	return stringutil.Sprintf("COUNT(%v)", c.Expr)
 }
 
 // Aggregator returns a CountAggregator. It implements the AggregatorBuilder interface.
@@ -237,10 +230,10 @@ func (c *CountAggregator) Aggregate(env *environment.Environment) error {
 	}
 
 	v, err := c.Fn.Expr.Eval(env)
-	if err != nil && !errors.Is(err, types.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, document.ErrFieldNotFound) {
 		return err
 	}
-	if v.Type() != types.NullValue {
+	if v != expr.NullLiteral {
 		c.Count++
 	}
 
@@ -248,7 +241,7 @@ func (c *CountAggregator) Aggregate(env *environment.Environment) error {
 }
 
 // Eval returns the result of the aggregation as an integer.
-func (c *CountAggregator) Eval(_ *environment.Environment) (types.Value, error) {
+func (c *CountAggregator) Eval(env *environment.Environment) (types.Value, error) {
 	return types.NewIntegerValue(c.Count), nil
 }
 
@@ -291,7 +284,7 @@ func (m *Min) Params() []expr.Expr { return []expr.Expr{m.Expr} }
 // String returns the alias if non-zero, otherwise it returns a string representation
 // of the count expression.
 func (m *Min) String() string {
-	return fmt.Sprintf("MIN(%v)", m.Expr)
+	return stringutil.Sprintf("MIN(%v)", m.Expr)
 }
 
 // Aggregator returns a MinAggregator. It implements the AggregatorBuilder interface.
@@ -311,17 +304,11 @@ type MinAggregator struct {
 // then if the type is equal their value is compared. Numbers are considered of the same type.
 func (m *MinAggregator) Aggregate(env *environment.Environment) error {
 	v, err := m.Fn.Expr.Eval(env)
-	if err != nil && !errors.Is(err, types.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, document.ErrFieldNotFound) {
 		return err
 	}
-	if v.Type() == types.NullValue {
+	if v == expr.NullLiteral {
 		return nil
-	}
-
-	// clone the value to avoid it being reused during next aggregation
-	v, err = document.CloneValue(v)
-	if err != nil {
-		return err
 	}
 
 	if m.Min == nil {
@@ -349,7 +336,7 @@ func (m *MinAggregator) Aggregate(env *environment.Environment) error {
 }
 
 // Eval return the minimum value.
-func (m *MinAggregator) Eval(_ *environment.Environment) (types.Value, error) {
+func (m *MinAggregator) Eval(env *environment.Environment) (types.Value, error) {
 	if m.Min == nil {
 		return types.NewNullValue(), nil
 	}
@@ -395,7 +382,7 @@ func (m *Max) Params() []expr.Expr { return []expr.Expr{m.Expr} }
 // String returns the alias if non-zero, otherwise it returns a string representation
 // of the count expression.
 func (m *Max) String() string {
-	return fmt.Sprintf("MAX(%v)", m.Expr)
+	return stringutil.Sprintf("MAX(%v)", m.Expr)
 }
 
 // Aggregator returns a MaxAggregator. It implements the AggregatorBuilder interface.
@@ -415,17 +402,11 @@ type MaxAggregator struct {
 // then if the type is equal their value is compared. Numbers are considered of the same type.
 func (m *MaxAggregator) Aggregate(env *environment.Environment) error {
 	v, err := m.Fn.Expr.Eval(env)
-	if err != nil && !errors.Is(err, types.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, document.ErrFieldNotFound) {
 		return err
 	}
-	if v.Type() == types.NullValue {
+	if v == expr.NullLiteral {
 		return nil
-	}
-
-	// clone the value to avoid it being reused during next aggregation
-	v, err = document.CloneValue(v)
-	if err != nil {
-		return err
 	}
 
 	if m.Max == nil {
@@ -453,7 +434,7 @@ func (m *MaxAggregator) Aggregate(env *environment.Environment) error {
 }
 
 // Eval return the maximum value.
-func (m *MaxAggregator) Eval(_ *environment.Environment) (types.Value, error) {
+func (m *MaxAggregator) Eval(env *environment.Environment) (types.Value, error) {
 	if m.Max == nil {
 		return types.NewNullValue(), nil
 	}
@@ -500,7 +481,7 @@ func (s *Sum) Params() []expr.Expr { return []expr.Expr{s.Expr} }
 // String returns the alias if non-zero, otherwise it returns a string representation
 // of the count expression.
 func (s *Sum) String() string {
-	return fmt.Sprintf("SUM(%v)", s.Expr)
+	return stringutil.Sprintf("SUM(%v)", s.Expr)
 }
 
 // Aggregator returns a Sum. It implements the AggregatorBuilder interface.
@@ -522,7 +503,7 @@ type SumAggregator struct {
 // If any of the value is a double, the returned result will be a double.
 func (s *SumAggregator) Aggregate(env *environment.Environment) error {
 	v, err := s.Fn.Expr.Eval(env)
-	if err != nil && !errors.Is(err, types.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, document.ErrFieldNotFound) {
 		return err
 	}
 	if v.Type() != types.IntegerValue && v.Type() != types.DoubleValue {
@@ -531,9 +512,9 @@ func (s *SumAggregator) Aggregate(env *environment.Environment) error {
 
 	if s.SumF != nil {
 		if v.Type() == types.IntegerValue {
-			*s.SumF += float64(types.As[int64](v))
+			*s.SumF += float64(v.V().(int64))
 		} else {
-			*s.SumF += float64(types.As[float64](v))
+			*s.SumF += float64(v.V().(float64))
 		}
 
 		return nil
@@ -545,7 +526,7 @@ func (s *SumAggregator) Aggregate(env *environment.Environment) error {
 			sumF = float64(*s.SumI)
 		}
 		s.SumF = &sumF
-		*s.SumF += float64(types.As[float64](v))
+		*s.SumF += float64(v.V().(float64))
 
 		return nil
 	}
@@ -555,12 +536,12 @@ func (s *SumAggregator) Aggregate(env *environment.Environment) error {
 		s.SumI = &sumI
 	}
 
-	*s.SumI += types.As[int64](v)
+	*s.SumI += v.V().(int64)
 	return nil
 }
 
 // Eval return the aggregated sum.
-func (s *SumAggregator) Eval(_ *environment.Environment) (types.Value, error) {
+func (s *SumAggregator) Eval(env *environment.Environment) (types.Value, error) {
 	if s.SumF != nil {
 		return types.NewDoubleValue(*s.SumF), nil
 	}
@@ -610,7 +591,7 @@ func (s *Avg) Params() []expr.Expr { return []expr.Expr{s.Expr} }
 // String returns the alias if non-zero, otherwise it returns a string representation
 // of the average expression.
 func (s *Avg) String() string {
-	return fmt.Sprintf("AVG(%v)", s.Expr)
+	return stringutil.Sprintf("AVG(%v)", s.Expr)
 }
 
 // Aggregator returns a Avg. It implements the AggregatorBuilder interface.
@@ -630,15 +611,15 @@ type AvgAggregator struct {
 // Aggregate stores the average value of all non-NULL numeric values in the group.
 func (s *AvgAggregator) Aggregate(env *environment.Environment) error {
 	v, err := s.Fn.Expr.Eval(env)
-	if err != nil && !errors.Is(err, types.ErrFieldNotFound) {
+	if err != nil && !errors.Is(err, document.ErrFieldNotFound) {
 		return err
 	}
 
 	switch v.Type() {
 	case types.IntegerValue:
-		s.Avg += float64(types.As[int64](v))
+		s.Avg += float64(v.V().(int64))
 	case types.DoubleValue:
-		s.Avg += types.As[float64](v)
+		s.Avg += v.V().(float64)
 	default:
 		return nil
 	}
@@ -648,7 +629,7 @@ func (s *AvgAggregator) Aggregate(env *environment.Environment) error {
 }
 
 // Eval returns the aggregated average as a double.
-func (s *AvgAggregator) Eval(_ *environment.Environment) (types.Value, error) {
+func (s *AvgAggregator) Eval(env *environment.Environment) (types.Value, error) {
 	if s.Counter == 0 {
 		return types.NewDoubleValue(0), nil
 	}
@@ -658,62 +639,4 @@ func (s *AvgAggregator) Eval(_ *environment.Environment) (types.Value, error) {
 
 func (s *AvgAggregator) String() string {
 	return s.Fn.String()
-}
-
-// Len represents the len() function.
-// It returns the length of string, array or document.
-// For other types len() returns NULL.
-type Len struct {
-	Expr expr.Expr
-}
-
-// Eval extracts the average value from the given document and returns it.
-func (s *Len) Eval(env *environment.Environment) (types.Value, error) {
-	val, err := s.Expr.Eval(env)
-	if err != nil {
-		return nil, err
-	}
-	var length int
-	switch val.Type() {
-	case types.TextValue:
-		length = len(types.As[string](val))
-	case types.ArrayValue:
-		arrayLen, err := document.ArrayLength(types.As[types.Array](val))
-		if err != nil {
-			return nil, err
-		}
-		length = arrayLen
-	case types.DocumentValue:
-		docLen, err := document.Length(types.As[types.Document](val))
-		if err != nil {
-			return nil, err
-		}
-		length = docLen
-	default:
-		return types.NewNullValue(), nil
-	}
-
-	return types.NewIntegerValue(int64(length)), nil
-}
-
-// IsEqual compares this expression with the other expression and returns
-// true if they are equal.
-func (s *Len) IsEqual(other expr.Expr) bool {
-	if other == nil {
-		return false
-	}
-
-	o, ok := other.(*Len)
-	if !ok {
-		return false
-	}
-
-	return expr.Equal(s.Expr, o.Expr)
-}
-
-func (s *Len) Params() []expr.Expr { return []expr.Expr{s.Expr} }
-
-// String returns the literal representation of len.
-func (s *Len) String() string {
-	return fmt.Sprintf("LEN(%v)", s.Expr)
 }

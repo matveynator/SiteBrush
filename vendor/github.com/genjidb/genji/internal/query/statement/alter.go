@@ -1,9 +1,9 @@
 package statement
 
 import (
-	"github.com/cockroachdb/errors"
+	errs "github.com/genjidb/genji/errors"
 	"github.com/genjidb/genji/internal/database"
-	errs "github.com/genjidb/genji/internal/errors"
+	"github.com/genjidb/genji/internal/errors"
 )
 
 // AlterStmt is a DSL that allows creating a full ALTER TABLE query.
@@ -53,8 +53,8 @@ func (stmt AlterTableAddField) Run(ctx *Context) (Result, error) {
 	var res Result
 
 	var fc *database.FieldConstraint
-	if len(stmt.Info.FieldConstraints.Ordered) != 0 {
-		fc = stmt.Info.FieldConstraints.Ordered[0]
+	if stmt.Info.FieldConstraints != nil {
+		fc = stmt.Info.FieldConstraints[0]
 	}
 
 	err := ctx.Catalog.AddFieldConstraint(ctx.Tx, stmt.Info.TableName, fc, stmt.Info.TableConstraints)

@@ -28,7 +28,10 @@ func (r *Range) ToTreeRange(constraints *FieldConstraints, paths []document.Path
 			}
 		}
 
-		rng.Min = tree.NewKey(r.Min...)
+		rng.Min, err = tree.NewKey(r.Min...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(r.Max) > 0 {
@@ -39,7 +42,10 @@ func (r *Range) ToTreeRange(constraints *FieldConstraints, paths []document.Path
 			}
 		}
 
-		rng.Max = tree.NewKey(r.Max...)
+		rng.Max, err = tree.NewKey(r.Max...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if r.Exclusive && r.Exact {
@@ -69,7 +75,7 @@ func (r *Range) Convert(constraints *FieldConstraints, v types.Value, p document
 		}
 
 		if v.Type() == types.DoubleValue && targetType == types.IntegerValue {
-			f := types.As[float64](v)
+			f := v.V().(float64)
 			if float64(int64(f)) == f {
 				return document.CastAsInteger(v)
 			}

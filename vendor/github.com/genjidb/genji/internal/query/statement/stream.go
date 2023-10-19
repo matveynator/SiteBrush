@@ -1,8 +1,8 @@
 package statement
 
 import (
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/planner"
 	"github.com/genjidb/genji/internal/stream"
 	"github.com/genjidb/genji/types"
@@ -14,7 +14,8 @@ type StreamStmt struct {
 	ReadOnly bool
 }
 
-// Prepare implements the Preparer interface.
+// Run returns a result containing the stream. The stream will be executed by calling the Iterate method of
+// the result.
 func (s *StreamStmt) Prepare(ctx *Context) (Statement, error) {
 	st, err := planner.Optimize(s.Stream, ctx.Catalog)
 	if err != nil {

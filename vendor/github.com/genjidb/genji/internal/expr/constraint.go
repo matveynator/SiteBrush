@@ -1,9 +1,9 @@
 package expr
 
 import (
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/types"
 )
 
@@ -33,6 +33,20 @@ func (t *ConstraintExpr) Eval(tx *database.Transaction, d types.Document) (types
 
 func (t *ConstraintExpr) Bind(catalog *database.Catalog) {
 	t.Catalog = catalog
+}
+
+func (t *ConstraintExpr) IsEqual(other database.TableExpression) bool {
+	if t == nil {
+		return other == nil
+	}
+	if other == nil {
+		return false
+	}
+	o, ok := other.(*ConstraintExpr)
+	if !ok {
+		return false
+	}
+	return Equal(t.Expr, o.Expr)
 }
 
 func (t *ConstraintExpr) String() string {

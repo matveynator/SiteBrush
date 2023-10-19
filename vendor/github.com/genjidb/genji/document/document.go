@@ -2,16 +2,18 @@
 package document
 
 import (
-	"fmt"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/buger/jsonparser"
-	"github.com/cockroachdb/errors"
-
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
+
+// ErrFieldNotFound must be returned by Document implementations, when calling the GetByField method and
+// the field wasn't found in the document.
+var ErrFieldNotFound = errors.New("field not found")
 
 // ErrUnsupportedType is used to skip struct or array fields that are not supported.
 type ErrUnsupportedType struct {
@@ -20,7 +22,7 @@ type ErrUnsupportedType struct {
 }
 
 func (e *ErrUnsupportedType) Error() string {
-	return fmt.Sprintf("unsupported type %T. %s", e.Value, e.Msg)
+	return stringutil.Sprintf("unsupported type %T. %s", e.Value, e.Msg)
 }
 
 // An Iterator can iterate over documents.
@@ -114,14 +116,14 @@ func (fb FieldBuffer) GetByField(field string) (types.Value, error) {
 		}
 	}
 
-	return nil, types.ErrFieldNotFound
+	return nil, ErrFieldNotFound
 }
 
 // setFieldValue replaces a field if it already exists or creates one if not.
 func (fb *FieldBuffer) setFieldValue(field string, reqValue types.Value) error {
 	_, err := fb.GetByField(field)
 	switch err {
-	case types.ErrFieldNotFound:
+	case ErrFieldNotFound:
 		fb.Add(field, reqValue)
 		return nil
 	case nil:
@@ -137,7 +139,7 @@ func setValueAtPath(v types.Value, p Path, newValue types.Value) (types.Value, e
 	switch v.Type() {
 	case types.DocumentValue:
 		var buf FieldBuffer
-		err := buf.ScanDocument(types.As[types.Document](v))
+		err := buf.ScanDocument(v.V().(types.Document))
 		if err != nil {
 			return v, err
 		}
@@ -150,7 +152,7 @@ func setValueAtPath(v types.Value, p Path, newValue types.Value) (types.Value, e
 		// the field is a document but the path expects an array,
 		// return an error
 		if p[0].FieldName == "" {
-			return nil, types.ErrFieldNotFound
+			return nil, ErrFieldNotFound
 		}
 
 		va, err := buf.GetByField(p[0].FieldName)
@@ -167,7 +169,7 @@ func setValueAtPath(v types.Value, p Path, newValue types.Value) (types.Value, e
 		return types.NewDocumentValue(&buf), err
 	case types.ArrayValue:
 		var vb ValueBuffer
-		err := vb.ScanArray(types.As[types.Array](v))
+		err := vb.ScanArray(v.V().(types.Array))
 		if err != nil {
 			return v, err
 		}
@@ -190,15 +192,15 @@ func setValueAtPath(v types.Value, p Path, newValue types.Value) (types.Value, e
 		return types.NewArrayValue(&vb), err
 	}
 
-	return nil, types.ErrFieldNotFound
+	return nil, ErrFieldNotFound
 }
 
 // Set replaces a field if it already exists or creates one if not.
-// TODO(asdine): Set should always fail with types.ErrFieldNotFound if the path
+// TODO(asdine): Set should always fail with ErrFieldNotFound if the path
 // doesn't resolve to an existing field.
 func (fb *FieldBuffer) Set(path Path, v types.Value) error {
 	if len(path) == 0 || path[0].FieldName == "" {
-		return types.ErrFieldNotFound
+		return ErrFieldNotFound
 	}
 
 	if len(path) == 1 {
@@ -215,10 +217,7 @@ func (fb *FieldBuffer) Set(path Path, v types.Value) error {
 		return err
 	}
 
-	err = fb.setFieldValue(path[0].FieldName, va)
-	if err != nil {
-		return err
-	}
+	fb.setFieldValue(path[0].FieldName, va)
 
 	return nil
 }
@@ -257,7 +256,7 @@ func (fb *FieldBuffer) Delete(path Path) error {
 	}
 	switch v.Type() {
 	case types.DocumentValue:
-		subBuf, ok := types.Is[*FieldBuffer](v)
+		subBuf, ok := v.V().(*FieldBuffer)
 		if !ok {
 			return errors.New("Delete doesn't support non buffered document")
 		}
@@ -269,20 +268,20 @@ func (fb *FieldBuffer) Delete(path Path) error {
 			}
 		}
 
-		return types.ErrFieldNotFound
+		return ErrFieldNotFound
 	case types.ArrayValue:
-		subBuf, ok := types.Is[*ValueBuffer](v)
+		subBuf, ok := v.V().(*ValueBuffer)
 		if !ok {
 			return errors.New("Delete doesn't support non buffered array")
 		}
 
 		idx := path[len(path)-1].ArrayIndex
 		if idx >= len(subBuf.Values) {
-			return types.ErrFieldNotFound
+			return ErrFieldNotFound
 		}
 		subBuf.Values = append(subBuf.Values[0:idx], subBuf.Values[idx+1:]...)
 	default:
-		return types.ErrFieldNotFound
+		return ErrFieldNotFound
 	}
 
 	return nil
@@ -297,53 +296,39 @@ func (fb *FieldBuffer) Replace(field string, v types.Value) error {
 		}
 	}
 
-	return types.ErrFieldNotFound
+	return ErrFieldNotFound
 }
 
 // Copy deep copies every value of the document to the buffer.
 // If a value is a document or an array, it will be stored as a FieldBuffer or ValueBuffer respectively.
 func (fb *FieldBuffer) Copy(d types.Document) error {
-	return d.Iterate(func(field string, value types.Value) error {
-		v, err := CloneValue(value)
-		if err != nil {
-			return err
-		}
-		fb.Add(strings.Clone(field), v)
-		return nil
-	})
-}
-
-func CloneValue(v types.Value) (types.Value, error) {
-	switch v.Type() {
-	case types.NullValue:
-		return types.NewNullValue(), nil
-	case types.BooleanValue:
-		return types.NewBoolValue(types.As[bool](v)), nil
-	case types.IntegerValue:
-		return types.NewIntegerValue(types.As[int64](v)), nil
-	case types.DoubleValue:
-		return types.NewDoubleValue(types.As[float64](v)), nil
-	case types.TextValue:
-		return types.NewTextValue(strings.Clone(types.As[string](v))), nil
-	case types.BlobValue:
-		return types.NewBlobValue(append([]byte{}, types.As[[]byte](v)...)), nil
-	case types.ArrayValue:
-		vb := NewValueBuffer()
-		err := vb.Copy(types.As[types.Array](v))
-		if err != nil {
-			return nil, err
-		}
-		return types.NewArrayValue(vb), nil
-	case types.DocumentValue:
-		fb := NewFieldBuffer()
-		err := fb.Copy(types.As[types.Document](v))
-		if err != nil {
-			return nil, err
-		}
-		return types.NewDocumentValue(fb), nil
+	err := fb.ScanDocument(d)
+	if err != nil {
+		return err
 	}
 
-	panic(fmt.Sprintf("Unsupported value type: %s", v.Type()))
+	for i, f := range fb.fields {
+		switch f.Value.Type() {
+		case types.DocumentValue:
+			var buf FieldBuffer
+			err = buf.Copy(f.Value.V().(types.Document))
+			if err != nil {
+				return err
+			}
+
+			fb.fields[i].Value = types.NewDocumentValue(&buf)
+		case types.ArrayValue:
+			var buf ValueBuffer
+			err = buf.Copy(f.Value.V().(types.Array))
+			if err != nil {
+				return err
+			}
+
+			fb.fields[i].Value = types.NewArrayValue(&buf)
+		}
+	}
+
+	return nil
 }
 
 // Apply a function to all the values of the buffer.
@@ -362,10 +347,10 @@ func (fb *FieldBuffer) Apply(fn func(p Path, v types.Value) (types.Value, error)
 
 		switch f.Value.Type() {
 		case types.DocumentValue:
-			buf, ok := types.Is[*FieldBuffer](f.Value)
+			buf, ok := f.Value.V().(*FieldBuffer)
 			if !ok {
 				buf = NewFieldBuffer()
-				err := buf.Copy(types.As[types.Document](f.Value))
+				err := buf.Copy(f.Value.V().(types.Document))
 				if err != nil {
 					return err
 				}
@@ -379,10 +364,10 @@ func (fb *FieldBuffer) Apply(fn func(p Path, v types.Value) (types.Value, error)
 			}
 			fb.fields[i].Value = types.NewDocumentValue(buf)
 		case types.ArrayValue:
-			buf, ok := types.Is[*ValueBuffer](f.Value)
+			buf, ok := f.Value.V().(*ValueBuffer)
 			if !ok {
 				buf = NewValueBuffer()
-				err := buf.Copy(types.As[types.Array](f.Value))
+				err := buf.Copy(f.Value.V().(types.Array))
 				if err != nil {
 					return err
 				}
@@ -411,108 +396,155 @@ func (fb *FieldBuffer) Reset() {
 	fb.fields = fb.fields[:0]
 }
 
-// MaskFields returns a new document that masks the given fields.
-func MaskFields(d types.Document, fields ...string) types.Document {
-	return &maskDocument{d, fields}
-}
+// A Path represents the path to a particular value within a document.
+type Path []PathFragment
 
-type maskDocument struct {
-	d    types.Document
-	mask []string
-}
+// NewPath creates a path from a list of strings representing either a field name
+// or an array index in string form.
+func NewPath(fragments ...string) Path {
+	var path Path
 
-func (m *maskDocument) Iterate(fn func(field string, value types.Value) error) error {
-	return m.d.Iterate(func(field string, value types.Value) error {
-		if !stringutil.Contains(m.mask, field) {
-			return fn(field, value)
-		}
-
-		return nil
-	})
-}
-
-func (m *maskDocument) GetByField(field string) (types.Value, error) {
-	if !stringutil.Contains(m.mask, field) {
-		return m.d.GetByField(field)
-	}
-
-	return nil, types.ErrFieldNotFound
-}
-
-func (m *maskDocument) MarshalJSON() ([]byte, error) {
-	return MarshalJSON(m)
-}
-
-// OnlyFields returns a new document that only contains the given fields.
-func OnlyFields(d types.Document, fields ...string) types.Document {
-	return &onlyDocument{d, fields}
-}
-
-type onlyDocument struct {
-	d      types.Document
-	fields []string
-}
-
-func (o *onlyDocument) Iterate(fn func(field string, value types.Value) error) error {
-	for _, f := range o.fields {
-		v, err := o.d.GetByField(f)
+	for _, frag := range fragments {
+		idx, err := strconv.Atoi(frag)
 		if err != nil {
-			continue
-		}
-
-		if err := fn(f, v); err != nil {
-			return err
+			path = append(path, PathFragment{FieldName: frag})
+		} else {
+			path = append(path, PathFragment{ArrayIndex: idx})
 		}
 	}
 
-	return nil
+	return path
 }
 
-func (o *onlyDocument) GetByField(field string) (types.Value, error) {
-	if stringutil.Contains(o.fields, field) {
-		return o.d.GetByField(field)
+// PathFragment is a fragment of a path representing either a field name or
+// the index of an array.
+type PathFragment struct {
+	FieldName  string
+	ArrayIndex int
+}
+
+// String representation of all the fragments of the path.
+// It implements the Stringer interface.
+func (p Path) String() string {
+	var b strings.Builder
+
+	for i := range p {
+		if p[i].FieldName != "" {
+			if i != 0 {
+				b.WriteRune('.')
+			}
+			b.WriteString(p[i].FieldName)
+		} else {
+			b.WriteString("[" + strconv.Itoa(p[i].ArrayIndex) + "]")
+		}
+	}
+	return b.String()
+}
+
+// IsEqual returns whether other is equal to p.
+func (p Path) IsEqual(other Path) bool {
+	if len(other) != len(p) {
+		return false
 	}
 
-	return nil, types.ErrFieldNotFound
+	for i := range p {
+		if other[i] != p[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
-func (o *onlyDocument) MarshalJSON() ([]byte, error) {
-	return MarshalJSON(o)
-}
+// GetValueFromDocument returns the value at path p from d.
+func (p Path) GetValueFromDocument(d types.Document) (types.Value, error) {
+	if len(p) == 0 {
+		return nil, errors.Wrap(ErrFieldNotFound)
+	}
+	if p[0].FieldName == "" {
+		return nil, errors.Wrap(ErrFieldNotFound)
+	}
 
-func WithSortedFields(d types.Document) types.Document {
-	return &sortedDocument{d}
-}
-
-type sortedDocument struct {
-	types.Document
-}
-
-func (s *sortedDocument) Iterate(fn func(field string, value types.Value) error) error {
-	// iterate first to get the list of fields
-	var fields []string
-	err := s.Document.Iterate(func(field string, value types.Value) error {
-		fields = append(fields, field)
-		return nil
-	})
+	v, err := d.GetByField(p[0].FieldName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// sort the fields
-	sort.Strings(fields)
+	if len(p) == 1 {
+		return v, nil
+	}
 
-	// iterate again
-	for _, f := range fields {
-		v, err := s.Document.GetByField(f)
-		if err != nil {
-			continue
+	return p[1:].getValueFromValue(v)
+}
+
+// GetValueFromArray returns the value at path p from a.
+func (p Path) GetValueFromArray(a types.Array) (types.Value, error) {
+	if len(p) == 0 {
+		return nil, errors.Wrap(ErrFieldNotFound)
+	}
+	if p[0].FieldName != "" {
+		return nil, errors.Wrap(ErrFieldNotFound)
+	}
+
+	v, err := a.GetByIndex(p[0].ArrayIndex)
+	if err != nil {
+		if errors.Is(err, ErrValueNotFound) {
+			return nil, errors.Wrap(ErrFieldNotFound)
 		}
 
-		if err := fn(f, v); err != nil {
-			return err
+		return nil, err
+	}
+
+	if len(p) == 1 {
+		return v, nil
+	}
+
+	return p[1:].getValueFromValue(v)
+}
+
+func (p Path) Clone() Path {
+	c := make(Path, len(p))
+	copy(c, p)
+	return c
+}
+
+func (p Path) getValueFromValue(v types.Value) (types.Value, error) {
+	switch v.Type() {
+	case types.DocumentValue:
+		return p.GetValueFromDocument(v.V().(types.Document))
+	case types.ArrayValue:
+		return p.GetValueFromArray(v.V().(types.Array))
+	}
+
+	return nil, ErrFieldNotFound
+}
+
+type Paths []Path
+
+func (p Paths) String() string {
+	var sb strings.Builder
+
+	for i, pt := range p {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(pt.String())
+	}
+
+	return sb.String()
+}
+
+// IsEqual returns whether other is equal to p.
+func (p Paths) IsEqual(other Paths) bool {
+	if len(other) != len(p) {
+		return false
+	}
+
+	for i := range p {
+		if !other[i].IsEqual(p[i]) {
+			return false
 		}
 	}
 
-	return nil
+	return true
 }

@@ -1,13 +1,11 @@
 package parser
 
 import (
-	"fmt"
-
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/scanner"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // parseInsertStatement parses an insert string and returns a Statement AST object.
@@ -23,7 +21,7 @@ func (p *Parser) parseInsertStatement() (*statement.InsertStmt, error) {
 	// Parse table name
 	stmt.TableName, err = p.parseIdent()
 	if err != nil {
-		pErr := errors.UnwrapAll(err).(*ParseError)
+		pErr := err.(*ParseError)
 		pErr.Expected = []string{"table_name"}
 		return nil, pErr
 	}
@@ -97,16 +95,7 @@ func (p *Parser) parseValues(fields []string) ([]expr.Expr, error) {
 		return p.parseDocumentsWithFields(fields)
 	}
 
-	tok, pos, lit := p.ScanIgnoreWhitespace()
-	p.Unscan()
-	switch tok {
-	case scanner.LPAREN:
-		return p.parseDocumentsWithFields(fields)
-	case scanner.LBRACKET, scanner.NAMEDPARAM, scanner.POSITIONALPARAM:
-		return p.parseLiteralDocOrParamList()
-	}
-
-	return nil, newParseError(scanner.Tokstr(tok, lit), []string{"(", "[", "?", "$"}, pos)
+	return p.parseLiteralDocOrParamList()
 }
 
 // parseExprListValues parses the "VALUES" clause of the query, if it exists.
@@ -149,19 +138,13 @@ func (p *Parser) parseExprListWithFields(fields []string) (*expr.KVPairs, error)
 	var pairs expr.KVPairs
 	pairs.Pairs = make([]expr.KVPair, len(list))
 
-	if len(fields) > 0 {
-		if len(fields) != len(list) {
-			return nil, fmt.Errorf("%d values for %d fields", len(list), len(fields))
-		}
+	if len(fields) != len(list) {
+		return nil, stringutil.Errorf("%d values for %d fields", len(list), len(fields))
+	}
 
-		for i := range list {
-			pairs.Pairs[i].K = fields[i]
-			pairs.Pairs[i].V = list[i]
-		}
-	} else {
-		for i := range list {
-			pairs.Pairs[i].V = list[i]
-		}
+	for i := range list {
+		pairs.Pairs[i].K = fields[i]
+		pairs.Pairs[i].V = list[i]
 	}
 
 	return &pairs, nil

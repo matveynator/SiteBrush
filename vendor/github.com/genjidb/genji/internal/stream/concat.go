@@ -8,7 +8,7 @@ import (
 
 // A ConcatOperator concatenates two streams.
 type ConcatOperator struct {
-	BaseOperator
+	baseOperator
 	Streams []*Stream
 }
 

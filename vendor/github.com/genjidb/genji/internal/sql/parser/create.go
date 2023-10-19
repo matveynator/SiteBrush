@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/genjidb/genji/document"
@@ -9,7 +8,7 @@ import (
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/scanner"
-	"github.com/genjidb/genji/types"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // parseCreateStatement parses a create string and returns a Statement AST object.
@@ -58,13 +57,6 @@ func (p *Parser) parseCreateTableStatement() (*statement.CreateTableStmt, error)
 
 	// parse field constraints
 	err = p.parseConstraints(&stmt)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(stmt.Info.FieldConstraints.Ordered) == 0 {
-		stmt.Info.FieldConstraints.AllowExtraFields = true
-	}
 	return &stmt, err
 }
 
@@ -78,52 +70,41 @@ func (p *Parser) parseConstraints(stmt *statement.CreateTableStmt) error {
 	// expect field definitions, but only table constraints.
 	var parsingTableConstraints bool
 
-	stmt.Info.FieldConstraints, _ = database.NewFieldConstraints()
-
-	var allTableConstraints []*database.TableConstraint
-
 	// Parse constraints.
 	for {
-		// start with the ellipsis token.
-		// if found, stop parsing constraints, as it should be the last one.
-		tok, _, _ := p.ScanIgnoreWhitespace()
-		if tok == scanner.ELLIPSIS {
-			stmt.Info.FieldConstraints.AllowExtraFields = true
-			break
-		}
-		p.Unscan()
-
-		// then we check if it is a table constraint,
+		// we start by checking if it is a table constraint,
 		// as it's easier to determine
-		tc, err := p.parseTableConstraint(stmt)
+		ok, err := p.parseTableConstraint(stmt)
 		if err != nil {
 			return err
 		}
 
 		// no table constraint found
-		if tc == nil && parsingTableConstraints {
+		if !ok && parsingTableConstraints {
 			tok, pos, lit := p.ScanIgnoreWhitespace()
 			return newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", ")"}, pos)
 		}
 
-		if tc != nil {
+		// only PRIMARY KEY(path) is currently supported.
+		if ok {
 			parsingTableConstraints = true
-			allTableConstraints = append(allTableConstraints, tc)
 		}
 
 		// if set to false, we are still parsing field definitions
 		if !parsingTableConstraints {
-			fc, tcs, err := p.parseFieldDefinition(document.Path{})
+			var fc database.FieldConstraint
+			err := p.parseFieldDefinition(&fc, &stmt.Info)
 			if err != nil {
 				return err
 			}
 
-			err = stmt.Info.AddFieldConstraint(fc)
-			if err != nil {
-				return err
+			// if the field definition is empty, we ignore it
+			if !fc.IsEmpty() {
+				err = stmt.Info.FieldConstraints.Add(&fc)
+				if err != nil {
+					return err
+				}
 			}
-
-			allTableConstraints = append(allTableConstraints, tcs...)
 		}
 
 		if tok, _, _ := p.ScanIgnoreWhitespace(); tok != scanner.COMMA {
@@ -137,25 +118,15 @@ func (p *Parser) parseConstraints(stmt *statement.CreateTableStmt) error {
 		return err
 	}
 
-	// add all table constraints to the table info
-	for _, tc := range allTableConstraints {
-		err := stmt.Info.AddTableConstraint(tc)
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (p *Parser) parseFieldDefinition(parent document.Path) (*database.FieldConstraint, []*database.TableConstraint, error) {
+func (p *Parser) parseFieldDefinition(fc *database.FieldConstraint, info *database.TableInfo) error {
 	var err error
 
-	var fc database.FieldConstraint
-
-	fc.Field, err = p.parseIdent()
+	fc.Path, err = p.parsePath()
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	fc.Type, err = p.parseType()
@@ -163,30 +134,7 @@ func (p *Parser) parseFieldDefinition(parent document.Path) (*database.FieldCons
 		p.Unscan()
 	}
 
-	path := parent.ExtendField(fc.Field)
-
-	var tcs []*database.TableConstraint
-
-	if fc.Type.IsAny() || fc.Type == types.DocumentValue {
-		anon, nestedTCs, err := p.parseDocumentDefinition(path)
-		if err != nil {
-			return nil, nil, err
-		}
-		if anon != nil {
-			fc.Type = types.DocumentValue
-			fc.AnonymousType = anon
-		} else if fc.Type == types.DocumentValue {
-			// if the field constraint is a document but doesn't have any constraint,
-			// its AllowExtraFields is set to true
-			// i.e CREATE TABLE foo(a DOCUMENT) -> CREATE TABLE foo(a DOCUMENT (...))
-			fc.AnonymousType = &database.AnonymousType{}
-			fc.AnonymousType.FieldConstraints.AllowExtraFields = true
-		}
-
-		if len(nestedTCs) != 0 {
-			tcs = append(tcs, nestedTCs...)
-		}
-	}
+	var addedTc int
 
 LOOP:
 	for {
@@ -195,34 +143,35 @@ LOOP:
 		case scanner.PRIMARY:
 			// Parse "KEY"
 			if err := p.parseTokens(scanner.KEY); err != nil {
-				return nil, nil, err
+				return err
 			}
 
-			tcs = append(tcs, &database.TableConstraint{
-				PrimaryKey: true,
-				Paths:      document.Paths{path},
-			})
+			err = info.TableConstraints.AddPrimaryKey(info.TableName, []document.Path{fc.Path})
+			if err != nil {
+				return err
+			}
+			addedTc++
 		case scanner.NOT:
 			// Parse "NULL"
 			if err := p.parseTokens(scanner.NULL); err != nil {
-				return nil, nil, err
+				return err
 			}
 
 			// if it's already not null we return an error
 			if fc.IsNotNull {
-				return nil, nil, newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", ")"}, pos)
+				return newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", ")"}, pos)
 			}
 
 			fc.IsNotNull = true
 		case scanner.DEFAULT:
 			// if it has already a default value we return an error
 			if fc.HasDefaultValue() {
-				return nil, nil, newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", ")"}, pos)
+				return newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", ")"}, pos)
 			}
 
 			withParentheses, err := p.parseOptional(scanner.LPAREN)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 
 			// Parse default value expression.
@@ -254,7 +203,7 @@ LOOP:
 				scanner.NEXT,
 			)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 
 			fc.DefaultValue = expr.Constraint(e)
@@ -262,144 +211,111 @@ LOOP:
 			if withParentheses {
 				_, err = p.parseOptional(scanner.RPAREN)
 				if err != nil {
-					return nil, nil, err
+					return err
 				}
 			}
 		case scanner.UNIQUE:
-			tcs = append(tcs, &database.TableConstraint{
-				Unique: true,
-				Paths:  document.Paths{path},
-			})
+			info.TableConstraints.AddUnique([]document.Path{fc.Path})
+			addedTc++
 		case scanner.CHECK:
-			e, paths, err := p.parseCheckConstraint()
+			// Parse "("
+			err := p.parseTokens(scanner.LPAREN)
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 
-			tcs = append(tcs, &database.TableConstraint{
-				Check: expr.Constraint(e),
-				Paths: paths,
-			})
+			e, err := p.ParseExpr()
+			if err != nil {
+				return err
+			}
+
+			// Parse ")"
+			err = p.parseTokens(scanner.RPAREN)
+			if err != nil {
+				return err
+			}
+
+			info.TableConstraints.AddCheck(info.TableName, expr.Constraint(e))
+			addedTc++
 		default:
 			p.Unscan()
 			break LOOP
 		}
 	}
 
-	return &fc, tcs, nil
+	// if no constraint was added we return an error. i.e:
+	// CREATE TABLE t (a)
+	if fc.IsEmpty() && addedTc == 0 {
+		tok, pos, lit := p.ScanIgnoreWhitespace()
+		return newParseError(scanner.Tokstr(tok, lit), []string{"CONSTRAINT", "TYPE"}, pos)
+	}
+
+	return nil
 }
 
-func (p *Parser) parseDocumentDefinition(parent document.Path) (*database.AnonymousType, []*database.TableConstraint, error) {
-	err := p.parseTokens(scanner.LPAREN)
-	if err != nil {
-		p.Unscan()
-		return nil, nil, nil
-	}
-
-	var anon database.AnonymousType
-	var nestedTcs []*database.TableConstraint
-
-	for {
-		// start with the ellipsis token.
-		// if found, stop parsing constraints, as it should be the last one.
-		tok, _, _ := p.ScanIgnoreWhitespace()
-		if tok == scanner.ELLIPSIS {
-			anon.FieldConstraints.AllowExtraFields = true
-			break
-		}
-		p.Unscan()
-
-		fc, tcs, err := p.parseFieldDefinition(parent)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		err = anon.AddFieldConstraint(fc)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		nestedTcs = append(nestedTcs, tcs...)
-
-		if tok, _, _ := p.ScanIgnoreWhitespace(); tok != scanner.COMMA {
-			p.Unscan()
-			break
-		}
-	}
-
-	err = p.parseTokens(scanner.RPAREN)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &anon, nestedTcs, nil
-}
-
-func (p *Parser) parseTableConstraint(stmt *statement.CreateTableStmt) (*database.TableConstraint, error) {
+func (p *Parser) parseTableConstraint(stmt *statement.CreateTableStmt) (bool, error) {
 	var err error
 
-	var tc database.TableConstraint
-	var requiresTc bool
-
-	if ok, _ := p.parseOptional(scanner.CONSTRAINT); ok {
-		tok, pos, lit := p.ScanIgnoreWhitespace()
-		switch tok {
-		case scanner.IDENT, scanner.STRING:
-			tc.Name = lit
-		default:
-			return nil, newParseError(scanner.Tokstr(tok, lit), []string{"IDENT", "STRING"}, pos)
-		}
-
-		requiresTc = true
-	}
-
-	tok, pos, lit := p.ScanIgnoreWhitespace()
+	tok, _, _ := p.ScanIgnoreWhitespace()
 	switch tok {
 	case scanner.PRIMARY:
 		// Parse "KEY ("
 		err = p.parseTokens(scanner.KEY)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 
-		tc.PrimaryKey = true
-
-		tc.Paths, err = p.parsePathList()
+		paths, err := p.parsePathList()
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		if len(tc.Paths) == 0 {
+		if len(paths) == 0 {
 			tok, pos, lit := p.ScanIgnoreWhitespace()
-			return nil, newParseError(scanner.Tokstr(tok, lit), []string{"PATHS"}, pos)
+			return false, newParseError(scanner.Tokstr(tok, lit), []string{"PATHS"}, pos)
 		}
+
+		if err := stmt.Info.TableConstraints.AddPrimaryKey(stmt.Info.TableName, paths); err != nil {
+			return false, err
+		}
+
+		return true, nil
 	case scanner.UNIQUE:
-		tc.Unique = true
-		tc.Paths, err = p.parsePathList()
+		paths, err := p.parsePathList()
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		if len(tc.Paths) == 0 {
+		if len(paths) == 0 {
 			tok, pos, lit := p.ScanIgnoreWhitespace()
-			return nil, newParseError(scanner.Tokstr(tok, lit), []string{"PATHS"}, pos)
+			return false, newParseError(scanner.Tokstr(tok, lit), []string{"PATHS"}, pos)
 		}
+
+		stmt.Info.TableConstraints.AddUnique(paths)
+		return true, nil
 	case scanner.CHECK:
-		e, paths, err := p.parseCheckConstraint()
+		// Parse "("
+		err = p.parseTokens(scanner.LPAREN)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 
-		tc.Check = expr.Constraint(e)
-		tc.Paths = paths
+		e, err := p.ParseExpr()
+		if err != nil {
+			return false, err
+		}
+
+		// Parse ")"
+		err = p.parseTokens(scanner.RPAREN)
+		if err != nil {
+			return false, err
+		}
+
+		stmt.Info.TableConstraints.AddCheck(stmt.Info.TableName, expr.Constraint(e))
+
+		return true, nil
 	default:
-		if requiresTc {
-			return nil, newParseError(scanner.Tokstr(tok, lit), []string{"PRIMARY", "UNIQUE", "CHECK"}, pos)
-		}
-
 		p.Unscan()
-		return nil, nil
+		return false, nil
 	}
-
-	return &tc, nil
 }
 
 // parseCreateIndexStatement parses a create index string and returns a Statement AST object.
@@ -432,7 +348,7 @@ func (p *Parser) parseCreateIndexStatement(unique bool) (*statement.CreateIndexS
 	}
 
 	// Parse table name
-	stmt.Info.Owner.TableName, err = p.parseIdent()
+	stmt.Info.TableName, err = p.parseIdent()
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +565,7 @@ func (p *Parser) parseCreateSequenceStatement() (*statement.CreateSequenceStmt, 
 
 	// check if min > max
 	if stmt.Info.Min > stmt.Info.Max {
-		return nil, &ParseError{Message: fmt.Sprintf("MINVALUE (%d) must be less than MAXVALUE (%d)", stmt.Info.Min, stmt.Info.Max)}
+		return nil, &ParseError{Message: stringutil.Sprintf("MINVALUE (%d) must be less than MAXVALUE (%d)", stmt.Info.Min, stmt.Info.Max)}
 	}
 
 	// default value for start is min if ascending
@@ -664,10 +580,10 @@ func (p *Parser) parseCreateSequenceStatement() (*statement.CreateSequenceStmt, 
 
 	// check if min < start < max
 	if stmt.Info.Start < stmt.Info.Min {
-		return nil, &ParseError{Message: fmt.Sprintf("START value (%d) cannot be less than MINVALUE (%d)", stmt.Info.Start, stmt.Info.Min)}
+		return nil, &ParseError{Message: stringutil.Sprintf("START value (%d) cannot be less than MINVALUE (%d)", stmt.Info.Start, stmt.Info.Min)}
 	}
 	if stmt.Info.Start > stmt.Info.Max {
-		return nil, &ParseError{Message: fmt.Sprintf("START value (%d) cannot be greater than MAXVALUE (%d)", stmt.Info.Start, stmt.Info.Max)}
+		return nil, &ParseError{Message: stringutil.Sprintf("START value (%d) cannot be greater than MAXVALUE (%d)", stmt.Info.Start, stmt.Info.Max)}
 	}
 
 	// default for cache is 1
@@ -677,49 +593,4 @@ func (p *Parser) parseCreateSequenceStatement() (*statement.CreateSequenceStmt, 
 		stmt.Info.Cache = 1
 	}
 	return &stmt, err
-}
-
-// parseCheckConstraint parses a check constraint.
-// it assumes the CHECK token has already been parsed.
-func (p *Parser) parseCheckConstraint() (expr.Expr, []document.Path, error) {
-	// Parse "("
-	err := p.parseTokens(scanner.LPAREN)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	e, err := p.ParseExpr()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var paths []document.Path
-	// extract all the paths from the expression
-	expr.Walk(e, func(e expr.Expr) bool {
-		switch t := e.(type) {
-		case expr.Path:
-			pt := document.Path(t)
-			// ensure that the path is not already in the list
-			found := false
-			for _, p := range paths {
-				if p.IsEqual(pt) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				paths = append(paths, document.Path(t))
-			}
-		}
-
-		return true
-	})
-
-	// Parse ")"
-	err = p.parseTokens(scanner.RPAREN)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return e, paths, nil
 }

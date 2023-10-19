@@ -1,46 +1,26 @@
 package database
 
 import (
-	"context"
-	"fmt"
+	"encoding/binary"
 	"math"
 	"sort"
-	"strings"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
-	errs "github.com/genjidb/genji/internal/errors"
-	"github.com/genjidb/genji/internal/lock"
+	"github.com/genjidb/genji/document/encoding"
+	"github.com/genjidb/genji/engine"
+	errs "github.com/genjidb/genji/errors"
+	"github.com/genjidb/genji/internal/errors"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/internal/tree"
-	"github.com/genjidb/genji/lib/atomic"
 	"github.com/genjidb/genji/types"
 )
 
-// System tables
 const (
-	CatalogTableName  = InternalPrefix + "catalog"
-	SequenceTableName = InternalPrefix + "sequence"
-)
-
-// Relation types
-const (
+	TableName            = InternalPrefix + "catalog"
 	RelationTableType    = "table"
 	RelationIndexType    = "index"
 	RelationSequenceType = "sequence"
-)
-
-// System sequences
-const (
-	StoreSequence = InternalPrefix + "store_seq"
-)
-
-// System namespaces
-const (
-	CatalogTableNamespace    tree.Namespace = 1
-	SequenceTableNamespace   tree.Namespace = 2
-	RollbackSegmentNamespace tree.Namespace = 3
-	MinTransientNamespace    tree.Namespace = math.MaxInt64 - 1<<24
-	MaxTransientNamespace    tree.Namespace = math.MaxInt64
+	StoreSequence        = InternalPrefix + "store_seq"
 )
 
 // Catalog manages all database objects such as tables, indexes and sequences.
@@ -49,44 +29,37 @@ const (
 type Catalog struct {
 	Cache        *catalogCache
 	CatalogTable *CatalogStore
-	Locks        *lock.LockManager
-
-	TransientNamespaces *atomic.Counter
+	Codec        encoding.Codec
 }
 
 func NewCatalog() *Catalog {
 	return &Catalog{
-		Cache:               newCatalogCache(),
-		CatalogTable:        newCatalogStore(),
-		Locks:               lock.NewLockManager(),
-		TransientNamespaces: atomic.NewCounter(int64(MinTransientNamespace), int64(MaxTransientNamespace)),
+		Cache:        newCatalogCache(),
+		CatalogTable: newCatalogStore(),
 	}
 }
 
-func (c *Catalog) Init(tx *Transaction) error {
-	// ensure the catalog schema is store in the catalog table
-	err := c.ensureTableExists(tx, c.CatalogTable.info)
+func (c *Catalog) Init(tx *Transaction, codec encoding.Codec) error {
+	c.Codec = codec
+	err := c.CatalogTable.Init(tx, c)
 	if err != nil {
 		return err
 	}
 
 	// ensure the store sequence exists
-	return c.ensureSequenceExists(tx, &SequenceInfo{
+	err = c.CreateSequence(tx, &SequenceInfo{
 		Name:        StoreSequence,
 		IncrementBy: 1,
-		Start:       10,
-		Min:         1, Max: int64(MinTransientNamespace), // last 24 bits are for transient namespaces
+		Min:         1, Max: math.MaxInt64,
+		Start: 1,
+		Cache: 16,
 		Owner: Owner{
-			TableName: CatalogTableName,
+			TableName: TableName,
 		},
 	})
-}
-
-func (c *Catalog) ensureTableExists(tx *Transaction, info *TableInfo) error {
-	err := c.CreateTable(tx, info.TableName, info)
 	if err != nil {
 		switch {
-		case IsConstraintViolationError(err) && err.(*ConstraintViolationError).Constraint == "PRIMARY KEY":
+		case errs.IsConstraintViolationError(err) && err.(*errs.ConstraintViolationError).Constraint == "PRIMARY KEY":
 		case errs.IsAlreadyExistsError(err):
 		default:
 			return err
@@ -96,70 +69,40 @@ func (c *Catalog) ensureTableExists(tx *Transaction, info *TableInfo) error {
 	return nil
 }
 
-func (c *Catalog) ensureSequenceExists(tx *Transaction, seq *SequenceInfo) error {
-	err := c.CreateSequence(tx, seq)
-	if err != nil {
-		switch {
-		case IsConstraintViolationError(err) && err.(*ConstraintViolationError).Constraint == "PRIMARY KEY":
-		case errs.IsAlreadyExistsError(err):
-		default:
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *Catalog) generateStoreName(tx *Transaction) (tree.Namespace, error) {
+func (c *Catalog) generateStoreName(tx *Transaction) ([]byte, error) {
 	seq, err := c.GetSequence(StoreSequence)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	v, err := seq.Next(tx, c)
-	if err != nil {
-		return 0, err
-	}
-
-	return tree.Namespace(v), nil
-}
-
-func (c *Catalog) LockTable(tx *Transaction, tableName string, mode lock.LockMode) error {
-	obj := lock.NewTableObject(tableName)
-	if c.Locks.HasLock(tx.ID, obj, mode) {
-		return nil
-	}
-
-	ok, err := c.Locks.Lock(context.Background(), tx.ID, obj, mode)
-	if !ok || err != nil {
-		return errors.Wrapf(err, "failed to lock table %s", tableName)
-	}
-
-	fn := func() {
-		c.Locks.Unlock(tx.ID, obj)
-	}
-	tx.OnRollbackHooks = append(tx.OnRollbackHooks, fn)
-	tx.OnCommitHooks = append(tx.OnCommitHooks, fn)
-	return nil
-}
-
-func (c *Catalog) GetTable(tx *Transaction, tableName string) (*Table, error) {
-	err := c.LockTable(tx, tableName, lock.S)
 	if err != nil {
 		return nil, err
 	}
 
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutUvarint(buf, uint64(v))
+	return buf[:n], nil
+}
+
+func (c *Catalog) GetTable(tx *Transaction, tableName string) (*Table, error) {
 	o, err := c.Cache.Get(RelationTableType, tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	ti := o.(*TableInfoRelation).Info
+	ti := o.(*TableInfo)
+
+	s, err := tx.Tx.GetStore(ti.StoreName)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Table{
 		Tx:      tx,
-		Tree:    tree.New(tx.Session, ti.StoreNamespace),
+		Tree:    tree.New(s, c.Codec),
 		Info:    ti,
 		Catalog: c,
+		Codec:   c.Codec,
 	}, nil
 }
 
@@ -170,17 +113,12 @@ func (c *Catalog) GetTableInfo(tableName string) (*TableInfo, error) {
 		return nil, err
 	}
 
-	return r.(*TableInfoRelation).Info, nil
+	return r.(*TableInfo), nil
 }
 
 // CreateTable creates a table with the given name.
 // If it already exists, returns ErrTableAlreadyExists.
 func (c *Catalog) CreateTable(tx *Transaction, tableName string, info *TableInfo) error {
-	err := c.LockTable(tx, tableName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	if info == nil {
 		info = new(TableInfo)
 	}
@@ -190,48 +128,51 @@ func (c *Catalog) CreateTable(tx *Transaction, tableName string, info *TableInfo
 		return errors.New("table name required")
 	}
 
-	_, err = c.GetTable(tx, tableName)
+	_, err := c.GetTable(tx, tableName)
 	if err != nil && !errs.IsNotFoundError(err) {
 		return err
 	}
 	if err == nil {
-		return errors.WithStack(errs.AlreadyExistsError{Name: tableName})
+		return errors.Wrap(errs.AlreadyExistsError{Name: tableName})
 	}
 
-	if info.StoreNamespace == 0 {
-		info.StoreNamespace, err = c.generateStoreName(tx)
+	// replace user-defined constraints by inferred list of constraints
+	info.FieldConstraints, err = info.FieldConstraints.Infer()
+	if err != nil {
+		return err
+	}
+
+	if info.StoreName == nil {
+		info.StoreName, err = c.generateStoreName(tx)
 		if err != nil {
 			return err
 		}
 	}
 
-	if len(info.FieldConstraints.Ordered) != 0 {
-		// bind default values with catalog
-		for _, fc := range info.FieldConstraints.Ordered {
-			if fc.DefaultValue == nil {
-				continue
-			}
-
-			fc.DefaultValue.Bind(c)
+	// bind default values with catalog
+	for _, fc := range info.FieldConstraints {
+		if fc.DefaultValue == nil {
+			continue
 		}
+
+		fc.DefaultValue.Bind(c)
 	}
 
-	rel := TableInfoRelation{Info: info}
-	err = c.CatalogTable.Insert(tx, &rel)
+	err = c.CatalogTable.Insert(tx, info)
 	if err != nil {
 		return err
 	}
 
-	return c.Cache.Add(tx, &rel)
+	err = tx.Tx.CreateStore(info.StoreName)
+	if err != nil {
+		return stringutil.Errorf("failed to create table %q: %w", tableName, err)
+	}
+
+	return c.Cache.Add(tx, info)
 }
 
 // DropTable deletes a table from the catalog
 func (c *Catalog) DropTable(tx *Transaction, tableName string) error {
-	err := c.LockTable(tx, tableName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	ti, err := c.GetTableInfo(tableName)
 	if err != nil {
 		return err
@@ -263,43 +204,41 @@ func (c *Catalog) DropTable(tx *Transaction, tableName string) error {
 		return err
 	}
 
-	return tree.New(tx.Session, ti.StoreNamespace).Truncate()
+	return tx.Tx.DropStore(ti.StoreName)
 }
 
 // CreateIndex creates an index with the given name.
 // If it already exists, returns errs.ErrIndexAlreadyExists.
 func (c *Catalog) CreateIndex(tx *Transaction, info *IndexInfo) error {
-	err := c.LockTable(tx, info.Owner.TableName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	// check if the associated table exists
-	ti, err := c.GetTableInfo(info.Owner.TableName)
+	_, err := c.GetTableInfo(info.TableName)
 	if err != nil {
 		return err
 	}
 
-	// check if the indexed fields exist
-	for _, p := range info.Paths {
-		fc := ti.GetFieldConstraintForPath(p)
-		if fc == nil {
-			return errors.Errorf("field %q does not exist for table %q", p, ti.TableName)
+	if info.StoreName == nil {
+		info.StoreName, err = c.generateStoreName(tx)
+		if err != nil {
+			return err
 		}
 	}
 
-	info.StoreNamespace, err = c.generateStoreName(tx)
+	err = c.Cache.Add(tx, info)
 	if err != nil {
 		return err
 	}
 
-	rel := IndexInfoRelation{Info: info}
-	err = c.Cache.Add(tx, &rel)
+	err = c.CatalogTable.Insert(tx, info)
 	if err != nil {
 		return err
 	}
 
-	return c.CatalogTable.Insert(tx, &rel)
+	err = tx.Tx.CreateStore(info.StoreName)
+	if err != nil {
+		return stringutil.Errorf("failed to create index %q: %w", info.IndexName, err)
+	}
+
+	return nil
 }
 
 // GetIndex returns an index by name.
@@ -309,7 +248,12 @@ func (c *Catalog) GetIndex(tx *Transaction, indexName string) (*Index, error) {
 		return nil, err
 	}
 
-	return NewIndex(tree.New(tx.Session, info.StoreNamespace), *info), nil
+	s, err := tx.Tx.GetStore(info.StoreName)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewIndex(tree.New(s, c.Codec), *info), nil
 }
 
 // GetIndexInfo returns an index info by name.
@@ -318,7 +262,7 @@ func (c *Catalog) GetIndexInfo(indexName string) (*IndexInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.(*IndexInfoRelation).Info, nil
+	return r.(*IndexInfo), nil
 }
 
 // ListIndexes returns all indexes for a given table name. If tableName is empty
@@ -348,14 +292,9 @@ func (c *Catalog) DropIndex(tx *Transaction, name string) error {
 		return err
 	}
 
-	err = c.LockTable(tx, info.Owner.TableName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	// check if the index has been created by a table constraint
 	if len(info.Owner.Paths) > 0 {
-		return fmt.Errorf("cannot drop index %s because constraint on %s(%s) requires it", info.IndexName, info.Owner.TableName, info.Owner.Paths)
+		return stringutil.Errorf("cannot drop index %s because constraint on %s(%s) requires it", info.IndexName, info.TableName, info.Owner.Paths)
 	}
 
 	_, err = c.Cache.Delete(tx, RelationIndexType, name)
@@ -367,7 +306,13 @@ func (c *Catalog) DropIndex(tx *Transaction, name string) error {
 }
 
 func (c *Catalog) dropIndex(tx *Transaction, info *IndexInfo) error {
-	err := tree.New(tx.Session, info.StoreNamespace).Truncate()
+	s, err := tx.Tx.GetStore(info.StoreName)
+	if err != nil {
+		return err
+	}
+
+	idx := Index{Tree: tree.New(s, c.Codec)}
+	err = idx.Truncate()
 	if err != nil {
 		return err
 	}
@@ -377,53 +322,40 @@ func (c *Catalog) dropIndex(tx *Transaction, info *IndexInfo) error {
 
 // AddFieldConstraint adds a field constraint to a table.
 func (c *Catalog) AddFieldConstraint(tx *Transaction, tableName string, fc *FieldConstraint, tcs TableConstraints) error {
-	err := c.LockTable(tx, tableName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	r, err := c.Cache.Get(RelationTableType, tableName)
 	if err != nil {
 		return err
 	}
-	ti := r.(*TableInfoRelation).Info
+	ti := r.(*TableInfo)
 
 	clone := ti.Clone()
 	if fc != nil {
-		err = clone.AddFieldConstraint(fc)
+		err = clone.FieldConstraints.Add(fc)
 		if err != nil {
 			return err
 		}
 	}
 
-	for _, tc := range tcs {
-		err = clone.AddTableConstraint(tc)
-		if err != nil {
-			return err
-		}
-	}
-
-	cloneRel := &TableInfoRelation{Info: clone}
-	err = c.Cache.Replace(tx, cloneRel)
+	err = clone.TableConstraints.Merge(tcs)
 	if err != nil {
 		return err
 	}
 
-	return c.CatalogTable.Replace(tx, tableName, cloneRel)
+	err = c.Cache.Replace(tx, clone)
+	if err != nil {
+		return err
+	}
+
+	return c.CatalogTable.Replace(tx, tableName, clone)
 }
 
 // RenameTable renames a table.
 // If it doesn't exist, it returns errs.ErrTableNotFound.
 func (c *Catalog) RenameTable(tx *Transaction, oldName, newName string) error {
-	err := c.LockTable(tx, oldName, lock.X)
-	if err != nil {
-		return err
-	}
-
 	// Delete the old table info.
-	err = c.CatalogTable.Delete(tx, oldName)
-	if errs.IsNotFoundError(err) {
-		return errors.Wrapf(err, "table %s does not exist", oldName)
+	err := c.CatalogTable.Delete(tx, oldName)
+	if errors.Is(err, errs.ErrDocumentNotFound) {
+		return errors.Wrap(errs.NotFoundError{Name: oldName})
 	}
 	if err != nil {
 		return err
@@ -434,20 +366,17 @@ func (c *Catalog) RenameTable(tx *Transaction, oldName, newName string) error {
 		return err
 	}
 
-	ti := o.(*TableInfoRelation).Info
+	ti := o.(*TableInfo)
 
 	clone := ti.Clone()
 	clone.TableName = newName
 
-	cloneRel := &TableInfoRelation{
-		Info: clone,
-	}
-	err = c.CatalogTable.Insert(tx, cloneRel)
+	err = c.CatalogTable.Insert(tx, clone)
 	if err != nil {
 		return err
 	}
 
-	err = c.Cache.Add(tx, cloneRel)
+	err = c.Cache.Add(tx, clone)
 	if err != nil {
 		return err
 	}
@@ -457,18 +386,17 @@ func (c *Catalog) RenameTable(tx *Transaction, oldName, newName string) error {
 		if err != nil {
 			return err
 		}
-		info := r.(*IndexInfoRelation).Info
+		info := r.(*IndexInfo)
 
 		idxClone := info.Clone()
-		idxClone.Owner.TableName = clone.TableName
+		idxClone.TableName = clone.TableName
 
-		cloneRel := &IndexInfoRelation{Info: idxClone}
-		err = c.Cache.Add(tx, cloneRel)
+		err = c.Cache.Add(tx, idxClone)
 		if err != nil {
 			return err
 		}
 
-		err = c.CatalogTable.Replace(tx, idx.IndexName, cloneRel)
+		err = c.CatalogTable.Replace(tx, idx.IndexName, idx)
 		if err != nil {
 			return err
 		}
@@ -562,76 +490,11 @@ func (c *Catalog) ListSequences() []string {
 	return c.Cache.ListObjects(RelationSequenceType)
 }
 
-// GetFreeTransientNamespace returns the next available transient namespace.
-// Transient namespaces start from math.MaxInt64 - (2 << 24) to math.MaxInt64 (around 16 M).
-// The transient namespaces counter is not persisted and resets when the database is restarted.
-// Once the counter reaches its maximum value, it will wrap around to the minimum value.
-// Technically, if a transient namespace is still in use by the time the counter wraps around
-// its data may be overwritten. However, transient trees are supposed to verify that the
-// namespace is not in use before writing to it.
-func (c *Catalog) GetFreeTransientNamespace() tree.Namespace {
-	return tree.Namespace(c.TransientNamespaces.Incr())
-}
-
 type Relation interface {
 	Type() string
 	Name() string
 	SetName(name string)
 	GenerateBaseName() string
-}
-
-type TableInfoRelation struct {
-	Info *TableInfo
-}
-
-func (r *TableInfoRelation) Type() string {
-	return "table"
-}
-
-func (r *TableInfoRelation) Name() string {
-	return r.Info.TableName
-}
-
-func (r *TableInfoRelation) SetName(name string) {
-	r.Info.TableName = name
-}
-
-func (r *TableInfoRelation) GenerateBaseName() string {
-	return r.Info.TableName
-}
-
-type IndexInfoRelation struct {
-	Info *IndexInfo
-}
-
-func (r *IndexInfoRelation) Type() string {
-	return "index"
-}
-
-func (r *IndexInfoRelation) Name() string {
-	return r.Info.IndexName
-}
-
-func (r *IndexInfoRelation) SetName(name string) {
-	r.Info.IndexName = name
-}
-
-func (r *IndexInfoRelation) GenerateBaseName() string {
-	return fmt.Sprintf("%s_%s_idx", r.Info.Owner.TableName, pathsToIndexName(r.Info.Paths))
-}
-
-func pathsToIndexName(paths []document.Path) string {
-	var s strings.Builder
-
-	for i, p := range paths {
-		if i > 0 {
-			s.WriteRune('_')
-		}
-
-		s.WriteString(p.String())
-	}
-
-	return s.String()
 }
 
 type catalogCache struct {
@@ -650,11 +513,11 @@ func newCatalogCache() *catalogCache {
 
 func (c *catalogCache) Load(tables []TableInfo, indexes []IndexInfo, sequences []Sequence) {
 	for i := range tables {
-		c.tables[tables[i].TableName] = &TableInfoRelation{Info: &tables[i]}
+		c.tables[tables[i].TableName] = &tables[i]
 	}
 
 	for i := range indexes {
-		c.indexes[indexes[i].IndexName] = &IndexInfoRelation{Info: &indexes[i]}
+		c.indexes[indexes[i].IndexName] = &indexes[i]
 	}
 
 	for i := range sequences {
@@ -707,7 +570,7 @@ func (c *catalogCache) generateUnusedName(baseName string) string {
 		}
 
 		i++
-		name = fmt.Sprintf("%s%d", baseName, i)
+		name = stringutil.Sprintf("%s%d", baseName, i)
 	}
 
 	return name
@@ -723,7 +586,7 @@ func (c *catalogCache) getMapByType(tp string) map[string]Relation {
 		return c.sequences
 	}
 
-	panic(fmt.Sprintf("unknown catalog object type %q", tp))
+	panic(stringutil.Sprintf("unknown catalog object type %q", tp))
 }
 
 func (c *catalogCache) Add(tx *Transaction, o Relation) error {
@@ -732,7 +595,7 @@ func (c *catalogCache) Add(tx *Transaction, o Relation) error {
 	// if name is provided, ensure it's not duplicated
 	if name != "" {
 		if c.objectExists(name) {
-			return errors.WithStack(errs.AlreadyExistsError{Name: name})
+			return errors.Wrap(errs.AlreadyExistsError{Name: name})
 		}
 	} else {
 		name = o.GenerateBaseName()
@@ -755,7 +618,7 @@ func (c *catalogCache) Replace(tx *Transaction, o Relation) error {
 
 	old, ok := m[o.Name()]
 	if !ok {
-		return errors.WithStack(errs.NotFoundError{Name: o.Name()})
+		return errors.Wrap(errs.NotFoundError{Name: o.Name()})
 	}
 
 	m[o.Name()] = o
@@ -772,7 +635,7 @@ func (c *catalogCache) Delete(tx *Transaction, tp, name string) (Relation, error
 
 	o, ok := m[name]
 	if !ok {
-		return nil, errors.WithStack(errs.NotFoundError{Name: name})
+		return nil, errors.Wrap(errs.NotFoundError{Name: name})
 	}
 
 	delete(m, name)
@@ -789,7 +652,7 @@ func (c *catalogCache) Get(tp, name string) (Relation, error) {
 
 	o, ok := m[name]
 	if !ok {
-		return nil, errors.WithStack(&errs.NotFoundError{Name: name})
+		return nil, errors.Wrap(errs.NotFoundError{Name: name})
 	}
 
 	return o, nil
@@ -810,8 +673,8 @@ func (c *catalogCache) ListObjects(tp string) []string {
 func (c *catalogCache) GetTableIndexes(tableName string) []*IndexInfo {
 	var indexes []*IndexInfo
 	for _, o := range c.indexes {
-		idx := o.(*IndexInfoRelation).Info
-		if idx.Owner.TableName != tableName {
+		idx := o.(*IndexInfo)
+		if idx.TableName != tableName {
 			continue
 		}
 		indexes = append(indexes, idx)
@@ -823,73 +686,77 @@ func (c *catalogCache) GetTableIndexes(tableName string) []*IndexInfo {
 type CatalogStore struct {
 	Catalog *Catalog
 	info    *TableInfo
+	Codec   encoding.Codec
 }
 
 func newCatalogStore() *CatalogStore {
 	return &CatalogStore{
 		info: &TableInfo{
-			TableName:      CatalogTableName,
-			StoreNamespace: CatalogTableNamespace,
+			TableName: TableName,
+			StoreName: []byte(TableName),
 			TableConstraints: []*TableConstraint{
 				{
-					Name:       CatalogTableName + "_pk",
 					PrimaryKey: true,
 					Paths: []document.Path{
 						document.NewPath("name"),
 					},
 				},
 			},
-			FieldConstraints: MustNewFieldConstraints(
-				&FieldConstraint{
-					Position:  0,
-					Field:     "name",
-					Type:      types.TextValue,
-					IsNotNull: true,
-				},
-				&FieldConstraint{
-					Position:  1,
-					Field:     "type",
-					Type:      types.TextValue,
-					IsNotNull: true,
-				},
-				&FieldConstraint{
-					Position: 2,
-					Field:    "namespace",
-					Type:     types.IntegerValue,
-				},
-				&FieldConstraint{
-					Position: 3,
-					Field:    "sql",
-					Type:     types.TextValue,
-				},
-				&FieldConstraint{
-					Position: 4,
-					Field:    "docid_sequence_name",
-					Type:     types.TextValue,
-				},
-				&FieldConstraint{
-					Position: 5,
-					Field:    "owner",
-					Type:     types.DocumentValue,
-					AnonymousType: &AnonymousType{
-						FieldConstraints: MustNewFieldConstraints(
-							&FieldConstraint{
-								Position:  0,
-								Field:     "table_name",
-								Type:      types.TextValue,
-								IsNotNull: true,
-							},
-							&FieldConstraint{
-								Position: 1,
-								Field:    "paths",
-								Type:     types.ArrayValue,
-							},
-						),
+			FieldConstraints: []*FieldConstraint{
+				{
+					Path: document.Path{
+						document.PathFragment{
+							FieldName: "name",
+						},
 					},
+					Type: types.TextValue,
 				},
-			),
+				{
+					Path: document.Path{
+						document.PathFragment{
+							FieldName: "type",
+						},
+					},
+					Type: types.TextValue,
+				},
+				{
+					Path: document.Path{
+						document.PathFragment{
+							FieldName: "table_name",
+						},
+					},
+					Type: types.TextValue,
+				},
+				{
+					Path: document.Path{
+						document.PathFragment{
+							FieldName: "sql",
+						},
+					},
+					Type: types.TextValue,
+				},
+				{
+					Path: document.Path{
+						document.PathFragment{
+							FieldName: "store_name",
+						},
+					},
+					Type: types.BlobValue,
+				},
+			},
 		},
 	}
+}
+
+func (s *CatalogStore) Init(tx *Transaction, ctg *Catalog) error {
+	s.Catalog = ctg
+	_, err := tx.Tx.GetStore([]byte(TableName))
+	if errors.Is(err, engine.ErrStoreNotFound) {
+		err = tx.Tx.CreateStore([]byte(TableName))
+	}
+
+	s.Codec = ctg.Codec
+	return err
 }
 
 func (s *CatalogStore) Info() *TableInfo {
@@ -897,11 +764,17 @@ func (s *CatalogStore) Info() *TableInfo {
 }
 
 func (s *CatalogStore) Table(tx *Transaction) *Table {
+	st, err := tx.Tx.GetStore([]byte(TableName))
+	if err != nil {
+		panic(stringutil.Sprintf("database incorrectly setup: missing %q table: %v", TableName, err))
+	}
+
 	return &Table{
 		Tx:      tx,
-		Tree:    tree.New(tx.Session, CatalogTableNamespace),
+		Tree:    tree.New(st, s.Codec),
 		Info:    s.info,
 		Catalog: s.Catalog,
+		Codec:   s.Codec,
 	}
 }
 
@@ -910,8 +783,8 @@ func (s *CatalogStore) Insert(tx *Transaction, r Relation) error {
 	tb := s.Table(tx)
 
 	_, _, err := tb.Insert(relationToDocument(r))
-	if cerr, ok := err.(*ConstraintViolationError); ok && cerr.Constraint == "PRIMARY KEY" {
-		return errors.WithStack(errs.AlreadyExistsError{Name: r.Name()})
+	if errors.Is(err, errs.ErrDuplicateDocument) {
+		return errors.Wrap(errs.AlreadyExistsError{Name: r.Name()})
 	}
 
 	return err
@@ -921,37 +794,43 @@ func (s *CatalogStore) Insert(tx *Transaction, r Relation) error {
 func (s *CatalogStore) Replace(tx *Transaction, name string, r Relation) error {
 	tb := s.Table(tx)
 
-	key := tree.NewKey(types.NewTextValue(name))
-	_, err := tb.Replace(key, relationToDocument(r))
+	key, err := tree.NewKey(types.NewTextValue(name))
+	if err != nil {
+		return err
+	}
+	_, err = tb.Replace(key, relationToDocument(r))
 	return err
 }
 
 func (s *CatalogStore) Delete(tx *Transaction, name string) error {
 	tb := s.Table(tx)
 
-	key := tree.NewKey(types.NewTextValue(name))
+	key, err := tree.NewKey(types.NewTextValue(name))
+	if err != nil {
+		return err
+	}
 
 	return tb.Delete(key)
 }
 
 func relationToDocument(r Relation) types.Document {
 	switch t := r.(type) {
-	case *TableInfoRelation:
-		return tableInfoToDocument(t.Info)
-	case *IndexInfoRelation:
-		return indexInfoToDocument(t.Info)
+	case *TableInfo:
+		return tableInfoToDocument(t)
+	case *IndexInfo:
+		return indexInfoToDocument(t)
 	case *Sequence:
 		return sequenceInfoToDocument(t.Info)
 	}
 
-	panic(fmt.Sprintf("objectToDocument: unknown type %q", r.Type()))
+	panic(stringutil.Sprintf("objectToDocument: unknown type %q", r.Type()))
 }
 
 func tableInfoToDocument(ti *TableInfo) types.Document {
 	buf := document.NewFieldBuffer()
 	buf.Add("name", types.NewTextValue(ti.TableName))
 	buf.Add("type", types.NewTextValue(RelationTableType))
-	buf.Add("namespace", types.NewIntegerValue(int64(ti.StoreNamespace)))
+	buf.Add("store_name", types.NewBlobValue(ti.StoreName))
 	buf.Add("sql", types.NewTextValue(ti.String()))
 	if ti.DocidSequenceName != "" {
 		buf.Add("docid_sequence_name", types.NewTextValue(ti.DocidSequenceName))
@@ -964,7 +843,8 @@ func indexInfoToDocument(i *IndexInfo) types.Document {
 	buf := document.NewFieldBuffer()
 	buf.Add("name", types.NewTextValue(i.IndexName))
 	buf.Add("type", types.NewTextValue(RelationIndexType))
-	buf.Add("namespace", types.NewIntegerValue(int64(i.StoreNamespace)))
+	buf.Add("store_name", types.NewBlobValue(i.StoreName))
+	buf.Add("table_name", types.NewTextValue(i.TableName))
 	buf.Add("sql", types.NewTextValue(i.String()))
 	if i.Owner.TableName != "" {
 		buf.Add("owner", types.NewDocumentValue(ownerToDocument(&i.Owner)))

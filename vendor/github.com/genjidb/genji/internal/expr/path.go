@@ -1,9 +1,9 @@
 package expr
 
 import (
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/types"
 )
 
@@ -19,7 +19,7 @@ func (p Path) Eval(env *environment.Environment) (types.Value, error) {
 
 	d, ok := env.GetDocument()
 	if !ok {
-		return NullLiteral, types.ErrFieldNotFound
+		return NullLiteral, document.ErrFieldNotFound
 	}
 	dp := document.Path(p)
 
@@ -29,7 +29,7 @@ func (p Path) Eval(env *environment.Environment) (types.Value, error) {
 	}
 
 	v, err := dp.GetValueFromDocument(d)
-	if errors.Is(err, types.ErrFieldNotFound) {
+	if errors.Is(err, document.ErrFieldNotFound) {
 		return NullLiteral, nil
 	}
 

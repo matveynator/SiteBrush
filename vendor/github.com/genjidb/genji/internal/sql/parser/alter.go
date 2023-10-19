@@ -1,8 +1,7 @@
 package parser
 
 import (
-	"github.com/cockroachdb/errors"
-
+	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/scanner"
 )
@@ -34,30 +33,22 @@ func (p *Parser) parseAlterTableAddFieldStatement(tableName string) (_ statement
 		return stmt, err
 	}
 
+	var fc database.FieldConstraint
 	// Parse new field definition.
-	fc, tcs, err := p.parseFieldDefinition(nil)
+	err = p.parseFieldDefinition(&fc, &stmt.Info)
 	if err != nil {
 		return stmt, err
-	}
-
-	if fc.IsEmpty() {
-		return stmt, &ParseError{Message: "cannot add a field with no constraint"}
-	}
-
-	err = stmt.Info.AddFieldConstraint(fc)
-	if err != nil {
-		return stmt, err
-	}
-
-	for _, tc := range tcs {
-		err = stmt.Info.AddTableConstraint(tc)
-		if err != nil {
-			return stmt, err
-		}
 	}
 
 	if stmt.Info.GetPrimaryKey() != nil {
 		return stmt, &ParseError{Message: "cannot add a PRIMARY KEY constraint"}
+	}
+
+	if !fc.IsEmpty() {
+		err = stmt.Info.FieldConstraints.Add(&fc)
+		if err != nil {
+			return stmt, err
+		}
 	}
 
 	return stmt, nil
@@ -75,7 +66,7 @@ func (p *Parser) parseAlterStatement() (statement.Statement, error) {
 	// Parse table name.
 	tableName, err := p.parseIdent()
 	if err != nil {
-		pErr := errors.Unwrap(err).(*ParseError)
+		pErr := err.(*ParseError)
 		pErr.Expected = []string{"table_name"}
 		return nil, pErr
 	}

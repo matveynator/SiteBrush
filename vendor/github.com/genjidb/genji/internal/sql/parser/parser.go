@@ -1,17 +1,17 @@
 package parser
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/expr/functions"
 	"github.com/genjidb/genji/internal/query"
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/scanner"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // Parser represents an Genji SQL Parser.
@@ -56,7 +56,7 @@ func ParseExpr(s string) (expr.Expr, error) {
 func MustParseExpr(s string) expr.Expr {
 	e, err := ParseExpr(s)
 	if err != nil {
-		panic(fmt.Sprintf("%+v", err))
+		panic(err)
 	}
 
 	return e
@@ -65,41 +65,23 @@ func MustParseExpr(s string) expr.Expr {
 // ParseQuery parses a Genji SQL string and returns a Query.
 func (p *Parser) ParseQuery() (query.Query, error) {
 	var statements []statement.Statement
-
-	err := p.Parse(func(s statement.Statement) error {
-		statements = append(statements, s)
-		return nil
-	})
-	if err != nil {
-		return query.Query{}, err
-	}
-
-	return query.Query{Statements: statements}, nil
-}
-
-// ParseQuery parses a Genji SQL string and returns a Query.
-func (p *Parser) Parse(fn func(statement.Statement) error) error {
 	semi := true
 
 	for {
 		if tok, pos, lit := p.ScanIgnoreWhitespace(); tok == scanner.EOF {
-			return nil
+			return query.New(statements...), nil
 		} else if tok == scanner.SEMICOLON {
 			semi = true
 		} else {
 			if !semi {
-				return newParseError(scanner.Tokstr(tok, lit), []string{";"}, pos)
+				return query.Query{}, newParseError(scanner.Tokstr(tok, lit), []string{";"}, pos)
 			}
 			p.Unscan()
 			s, err := p.ParseStatement()
 			if err != nil {
-				return err
+				return query.Query{}, err
 			}
-			err = fn(s)
-			if err != nil {
-				return err
-			}
-
+			statements = append(statements, s)
 			semi = false
 		}
 	}
@@ -256,13 +238,13 @@ type ParseError struct {
 
 // newParseError returns a new instance of ParseError.
 func newParseError(found string, expected []string, pos scanner.Pos) error {
-	return errors.WithStack(&ParseError{Found: found, Expected: expected, Pos: pos})
+	return errors.Wrap(&ParseError{Found: found, Expected: expected, Pos: pos})
 }
 
 // Error returns the string representation of the error.
 func (e *ParseError) Error() string {
 	if e.Message != "" {
-		return fmt.Sprintf("%s at line %d, char %d", e.Message, e.Pos.Line+1, e.Pos.Char+1)
+		return stringutil.Sprintf("%s at line %d, char %d", e.Message, e.Pos.Line+1, e.Pos.Char+1)
 	}
-	return fmt.Sprintf("found %s, expected %s at line %d, char %d", e.Found, strings.Join(e.Expected, ", "), e.Pos.Line+1, e.Pos.Char+1)
+	return stringutil.Sprintf("found %s, expected %s at line %d, char %d", e.Found, strings.Join(e.Expected, ", "), e.Pos.Line+1, e.Pos.Char+1)
 }

@@ -1,9 +1,8 @@
 package expr
 
 import (
-	"fmt"
-
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
@@ -68,7 +67,7 @@ func (p Parentheses) IsEqual(other Expr) bool {
 }
 
 func (p Parentheses) String() string {
-	return fmt.Sprintf("(%v)", p.E)
+	return stringutil.Sprintf("(%v)", p.E)
 }
 
 func invertBoolResult(f func(env *environment.Environment) (types.Value, error)) func(env *environment.Environment) (types.Value, error) {
@@ -101,18 +100,18 @@ func (e *NamedExpr) Name() string {
 }
 
 func (e *NamedExpr) String() string {
-	return fmt.Sprintf("%s", e.Expr)
+	return stringutil.Sprintf("%s", e.Expr)
 }
 
 // A Function is an expression whose evaluation calls a function previously defined.
 type Function interface {
 	Expr
 
-	// Params returns the list of parameters this function has received.
+	// Returns the list of parameters this function has received.
 	Params() []Expr
 }
 
-// An Aggregator is an expression that aggregates documents into one result.
+// A Aggregator is an expression that aggregates documents into one result.
 type Aggregator interface {
 	Expr
 
@@ -150,18 +149,6 @@ func Walk(e Expr, fn func(Expr) bool) bool {
 				return false
 			}
 		}
-	case LiteralExprList:
-		for _, e := range t {
-			if !Walk(e, fn) {
-				return false
-			}
-		}
-	case *KVPairs:
-		for _, e := range t.Pairs {
-			if !Walk(e.V, fn) {
-				return false
-			}
-		}
 	}
 
 	return true
@@ -177,7 +164,7 @@ func (n NextValueFor) Eval(env *environment.Environment) (types.Value, error) {
 	tx := env.GetTx()
 
 	if catalog == nil || tx == nil {
-		return NullLiteral, fmt.Errorf(`NEXT VALUE FOR cannot be evaluated`)
+		return NullLiteral, stringutil.Errorf(`NEXT VALUE FOR cannot be evaluated`)
 	}
 
 	seq, err := catalog.GetSequence(n.SeqName)
@@ -209,5 +196,5 @@ func (n NextValueFor) IsEqual(other Expr) bool {
 }
 
 func (n NextValueFor) String() string {
-	return fmt.Sprintf("NEXT VALUE FOR %s", n.SeqName)
+	return stringutil.Sprintf("NEXT VALUE FOR %s", n.SeqName)
 }

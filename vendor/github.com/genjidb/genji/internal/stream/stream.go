@@ -3,8 +3,8 @@ package stream
 import (
 	"strings"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 )
 
 // ErrStreamClosed is used to indicate that a stream must be closed.
@@ -111,26 +111,4 @@ func InsertAfter(op, newOp Operator) Operator {
 	newOp.SetPrev(op)
 
 	return newOp
-}
-
-// DiscardOperator is an operator that doesn't do anything.
-type DiscardOperator struct {
-	BaseOperator
-}
-
-// Discard is an operator that doesn't produce any document.
-// It iterates over the previous operator and discards all the documents.
-func Discard() *DiscardOperator {
-	return &DiscardOperator{}
-}
-
-// Iterate iterates over all the streams and returns their union.
-func (op *DiscardOperator) Iterate(in *environment.Environment, _ func(out *environment.Environment) error) (err error) {
-	return op.Prev.Iterate(in, func(out *environment.Environment) error {
-		return nil
-	})
-}
-
-func (it *DiscardOperator) String() string {
-	return "discard()"
 }

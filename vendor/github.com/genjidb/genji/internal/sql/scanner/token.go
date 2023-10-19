@@ -29,7 +29,6 @@ const (
 	NULL            // NULL
 	REGEX           // Regular expressions
 	BADREGEX        // `.*
-	ELLIPSIS        // ...
 	literalEnd
 
 	operatorBeg
@@ -59,7 +58,6 @@ const (
 	IS       // IS
 	ISN      // IS NOT
 	LIKE     // LIKE
-	NLIKE    // NOT LIKE
 	CONCAT   // ||
 	BETWEEN  // BETWEEN
 	operatorEnd
@@ -90,7 +88,6 @@ const (
 	CHECK
 	COMMIT
 	CONFLICT
-	CONSTRAINT
 	CREATE
 	CYCLE
 	DEFAULT
@@ -148,13 +145,11 @@ const (
 	WHERE
 	WRITE
 
-	// Types
-	TYPEANY
+	// Aliases
 	TYPEARRAY
 	TYPEBIGINT
 	TYPEBLOB
 	TYPEBOOL
-	TYPEBOOLEAN
 	TYPEBYTES
 	TYPECHARACTER
 	TYPEDOCUMENT
@@ -238,7 +233,6 @@ var tokens = [...]string{
 	CHECK:       "CHECK",
 	COMMIT:      "COMMIT",
 	CONFLICT:    "CONFLICT",
-	CONSTRAINT:  "CONSTRAINT",
 	CREATE:      "CREATE",
 	CYCLE:       "CYCLE",
 	DO:          "DO",
@@ -296,12 +290,10 @@ var tokens = [...]string{
 	WHERE:       "WHERE",
 	WRITE:       "WRITE",
 
-	TYPEANY:       "ANY",
 	TYPEARRAY:     "ARRAY",
 	TYPEBIGINT:    "BIGINT",
 	TYPEBLOB:      "BLOB",
 	TYPEBOOL:      "BOOL",
-	TYPEBOOLEAN:   "BOOLEAN",
 	TYPEBYTES:     "BYTES",
 	TYPECHARACTER: "CHARACTER",
 	TYPEDOCUMENT:  "DOCUMENT",
@@ -335,20 +327,18 @@ func (tok Token) Precedence() int {
 		return 1
 	case AND:
 		return 2
-	case NOT:
+	case EQ, NEQ, IS, IN, LIKE, EQREGEX, NEQREGEX, BETWEEN:
 		return 3
-	case EQ, NEQ, IS, ISN, IN, NIN, LIKE, NLIKE, EQREGEX, NEQREGEX, BETWEEN:
-		return 4
 	case LT, LTE, GT, GTE:
-		return 5
+		return 4
 	case BITWISEOR, BITWISEXOR, BITWISEAND:
-		return 6
+		return 5
 	case ADD, SUB:
-		return 7
+		return 6
 	case MUL, DIV, MOD:
-		return 8
+		return 7
 	case CONCAT:
-		return 9
+		return 8
 	}
 	return 0
 }

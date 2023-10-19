@@ -17,9 +17,11 @@ func connectToDb(config Config.Settings)(db *sql.DB, err error) {
   if config.DB_TYPE == "genji" {
     db, err = sql.Open(config.DB_TYPE, config.DB_FULL_FILE_PATH)
     if err != nil {
-      config.DB_TYPE = "sqlite"
+
       log.Println("Database error:", err)
       log.Println("Genji is unsupported on this architecture, switching to sqlite db type.")
+      //переключаемся на sqlite для следующей попытки:
+      config.DB_TYPE = "sqlite"
       db, err = sql.Open(config.DB_TYPE, config.DB_FULL_FILE_PATH)
       if err != nil {
         err = errors.New(fmt.Sprintf("Database file error: %s", err.Error()))
@@ -45,9 +47,9 @@ func connectToDb(config Config.Settings)(db *sql.DB, err error) {
   } else if config.DB_TYPE == "sqlite" {
     db, err = sql.Open(config.DB_TYPE, config.DB_FULL_FILE_PATH)
     if err != nil {
-      config.DB_TYPE = "genji"
       log.Println("Database file error:", err)
       log.Println("SQLite is unsupported on this architecture, switching to genji db type.")
+      config.DB_TYPE = "genji"
       db, err = sql.Open(config.DB_TYPE, config.DB_FULL_FILE_PATH)
       if err != nil {
         err = errors.New(fmt.Sprintf("Database file error: %s", err.Error()))
@@ -138,7 +140,7 @@ func createTables(db *sql.DB, config Config.Settings) (err error) {
     Revision INTEGER,
     Domain TEXT,
     Status TEXT,
-    Published BOOLEAN
+    Published TEXT
   )`)
 
   if err != nil {

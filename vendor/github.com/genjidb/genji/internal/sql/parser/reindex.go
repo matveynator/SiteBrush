@@ -8,6 +8,7 @@ import (
 // parseReindexStatement parses a reindex statement.
 func (p *Parser) parseReIndexStatement() (statement.Statement, error) {
 	stmt := statement.NewReIndexStatement()
+	var err error
 
 	// Parse "REINDEX".
 	if err := p.parseTokens(scanner.REINDEX); err != nil {
@@ -20,5 +21,5 @@ func (p *Parser) parseReIndexStatement() (statement.Statement, error) {
 	} else {
 		p.Unscan()
 	}
-	return stmt, nil
+	return stmt, err
 }

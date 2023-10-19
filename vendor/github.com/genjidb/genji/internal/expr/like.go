@@ -1,11 +1,10 @@
 package expr
 
 import (
-	"fmt"
-
 	"github.com/genjidb/genji/internal/environment"
 	"github.com/genjidb/genji/internal/expr/glob"
 	"github.com/genjidb/genji/internal/sql/scanner"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
@@ -28,7 +27,7 @@ func (op *LikeOperator) Eval(env *environment.Environment) (types.Value, error) 
 			return NullLiteral, nil
 		}
 
-		if like(types.As[string](b), types.As[string](a)) {
+		if like(b.V().(string), a.V().(string)) {
 			return TrueLiteral, nil
 		}
 
@@ -37,12 +36,12 @@ func (op *LikeOperator) Eval(env *environment.Environment) (types.Value, error) 
 }
 
 type NotLikeOperator struct {
-	*LikeOperator
+	LikeOperator
 }
 
 // NotLike creates an expression that evaluates to the result of a NOT LIKE b.
 func NotLike(a, b Expr) Expr {
-	return &NotLikeOperator{&LikeOperator{&simpleOperator{a, b, scanner.NLIKE}}}
+	return &NotLikeOperator{LikeOperator{&simpleOperator{a, b, scanner.LIKE}}}
 }
 
 func (op *NotLikeOperator) Eval(env *environment.Environment) (types.Value, error) {
@@ -50,5 +49,5 @@ func (op *NotLikeOperator) Eval(env *environment.Environment) (types.Value, erro
 }
 
 func (op *NotLikeOperator) String() string {
-	return fmt.Sprintf("%v NOT LIKE %v", op.a, op.b)
+	return stringutil.Sprintf("%v NOT LIKE %v", op.a, op.b)
 }

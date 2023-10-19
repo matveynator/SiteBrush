@@ -1,12 +1,11 @@
 package expr
 
 import (
-	"fmt"
-
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/sql/scanner"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
@@ -75,7 +74,7 @@ func (op *simpleOperator) IsEqual(other Expr) bool {
 }
 
 func (op *simpleOperator) String() string {
-	return fmt.Sprintf("%v %v %v", op.a, op.Tok, op.b)
+	return stringutil.Sprintf("%v %v %v", op.a, op.Tok, op.b)
 }
 
 // An Operator is a binary expression that
@@ -107,7 +106,7 @@ func (op *ConcatOperator) Eval(env *environment.Environment) (types.Value, error
 			return NullLiteral, nil
 		}
 
-		return types.NewTextValue(types.As[string](a) + types.As[string](b)), nil
+		return types.NewTextValue(a.V().(string) + b.V().(string)), nil
 	})
 }
 
@@ -153,5 +152,5 @@ func (c Cast) IsEqual(other Expr) bool {
 func (c Cast) Params() []Expr { return []Expr{c.Expr} }
 
 func (c Cast) String() string {
-	return fmt.Sprintf("CAST(%v AS %v)", c.Expr, c.CastAs)
+	return stringutil.Sprintf("CAST(%v AS %v)", c.Expr, c.CastAs)
 }

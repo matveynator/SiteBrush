@@ -7,7 +7,7 @@ import (
 	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/environment"
 	"github.com/genjidb/genji/internal/expr"
-	"github.com/genjidb/genji/types"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // Range represents a range to select values after or before
@@ -31,66 +31,47 @@ func (r *Range) Eval(env *environment.Environment) (*database.Range, error) {
 		Exact:     r.Exact,
 	}
 
-	if len(r.Min) > 0 {
+	if r.Min != nil {
 		min, err := r.Min.Eval(env)
 		if err != nil {
 			return nil, err
 		}
 
-		rng.Min = types.As[*document.ValueBuffer](min).Values
+		rng.Min = min.V().(*document.ValueBuffer).Values
 	}
 
-	if len(r.Max) > 0 {
+	if r.Max != nil {
 		max, err := r.Max.Eval(env)
 		if err != nil {
 			return nil, err
 		}
-		rng.Max = types.As[*document.ValueBuffer](max).Values
+		rng.Max = max.V().(*document.ValueBuffer).Values
 	}
 
 	return &rng, nil
 }
 
 func (r *Range) String() string {
-	var sb strings.Builder
-
-	sb.WriteByte('{')
-	var needsComa bool
-
-	if len(r.Min) > 0 {
-		sb.WriteString(`"min": `)
-		sb.WriteString(r.Min.String())
-		needsComa = true
-	}
-
-	if len(r.Max) > 0 {
-		if needsComa {
-			sb.WriteString(", ")
+	format := func(el expr.LiteralExprList) string {
+		switch len(el) {
+		case 0:
+			return "-1"
+		case 1:
+			return el[0].String()
+		default:
+			return el.String()
 		}
-		sb.WriteString(`"max": `)
-		sb.WriteString(r.Max.String())
-		needsComa = true
 	}
 
 	if r.Exact {
-		if needsComa {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(`"exact": true`)
-		needsComa = true
+		return stringutil.Sprintf("%v", format(r.Min))
 	}
 
 	if r.Exclusive {
-		if needsComa {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(`"exclusive": true`)
-		needsComa = true
+		return stringutil.Sprintf("[%v, %v, true]", format(r.Min), format(r.Max))
 	}
 
-	sb.WriteByte('}')
-
-	return sb.String()
+	return stringutil.Sprintf("[%v, %v]", format(r.Min), format(r.Max))
 }
 
 func (r *Range) IsEqual(other *Range) bool {

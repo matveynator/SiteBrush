@@ -1,16 +1,15 @@
 package environment
 
 import (
-	"fmt"
-
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/database"
-	"github.com/genjidb/genji/internal/tree"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
 var (
 	TableKey = document.Path{document.PathFragment{FieldName: "$table"}}
+	DocPKKey = document.Path{document.PathFragment{FieldName: "$pk"}}
 )
 
 // A Param represents a parameter passed by the user to the statement.
@@ -27,7 +26,6 @@ type Param struct {
 type Environment struct {
 	Params  []Param
 	Vars    *document.FieldBuffer
-	Key     *tree.Key
 	Doc     types.Document
 	DB      *database.Database
 	Catalog *database.Catalog
@@ -92,22 +90,6 @@ func (e *Environment) SetDocument(d types.Document) {
 	e.Doc = d
 }
 
-func (e *Environment) GetKey() (*tree.Key, bool) {
-	if e.Key != nil {
-		return e.Key, true
-	}
-
-	if e.Outer != nil {
-		return e.Outer.GetKey()
-	}
-
-	return nil, false
-}
-
-func (e *Environment) SetKey(k *tree.Key) {
-	e.Key = k
-}
-
 func (e *Environment) SetParams(params []Param) {
 	e.Params = params
 }
@@ -125,7 +107,7 @@ func (e *Environment) GetParamByName(name string) (v types.Value, err error) {
 		}
 	}
 
-	return nil, fmt.Errorf("param %s not found", name)
+	return nil, stringutil.Errorf("param %s not found", name)
 }
 
 func (e *Environment) GetParamByIndex(pos int) (types.Value, error) {
@@ -137,7 +119,7 @@ func (e *Environment) GetParamByIndex(pos int) (types.Value, error) {
 
 	idx := int(pos - 1)
 	if idx >= len(e.Params) {
-		return nil, fmt.Errorf("cannot find param number %d", pos)
+		return nil, stringutil.Errorf("cannot find param number %d", pos)
 	}
 
 	return document.NewValue(e.Params[idx].Value)

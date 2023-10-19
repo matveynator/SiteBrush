@@ -1,4 +1,3 @@
-// +build android aix dragonfly freebsd illumos ios js netbsd openbsd plan9 solaris  zos
 
 package main
 
@@ -8,7 +7,6 @@ import (
 	"sitebrush/pkg/database"
 	"sitebrush/pkg/mylog"
   "sitebrush/pkg/webserver"
-  
 )
 
 func main() {
@@ -16,8 +14,8 @@ func main() {
 	settings := Config.ParseFlags()
 
 	go MyLog.ErrorLogWorker()
-	go database.Run(settings)
   go webserver.Run(settings)
+  go database.Run(settings)
 
 	for {
 		time.Sleep(10 * time.Second)	

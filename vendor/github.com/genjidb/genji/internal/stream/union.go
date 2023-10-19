@@ -1,18 +1,18 @@
 package stream
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/tree"
 	"github.com/genjidb/genji/types"
 )
 
 // UnionOperator is an operator that merges the results of multiple operators.
 type UnionOperator struct {
-	BaseOperator
+	baseOperator
 	Streams []*Stream
 }
 
@@ -45,17 +45,21 @@ func (it *UnionOperator) Iterate(in *environment.Environment, fn func(out *envir
 			}
 
 			if temp == nil {
-				// create a temporary tree
+				// create a temporary database
 				db := in.GetDB()
-				catalog := in.GetCatalog()
-				tns := catalog.GetFreeTransientNamespace()
-				temp, cleanup, err = tree.NewTransient(db.Store.NewTransientSession(), tns)
+
+				tr, f, err := database.NewTransientTree(db)
 				if err != nil {
 					return err
 				}
+				temp = tr
+				cleanup = f
 			}
 
-			key := tree.NewKey(types.NewDocumentValue(doc))
+			key, err := tree.NewKey(types.NewDocumentValue(doc))
+			if err != nil {
+				return err
+			}
 			err = temp.Put(key, nil)
 			if err == nil || errors.Is(err, database.ErrIndexDuplicateValue) {
 				return nil
@@ -76,13 +80,13 @@ func (it *UnionOperator) Iterate(in *environment.Environment, fn func(out *envir
 	newEnv.SetOuter(in)
 
 	// iterate over the temporary index
-	return temp.IterateOnRange(nil, false, func(key *tree.Key, _ []byte) error {
+	return temp.Iterate(nil, false, func(key tree.Key, _ types.Value) error {
 		kv, err := key.Decode()
 		if err != nil {
 			return err
 		}
 
-		doc := types.As[types.Document](kv[0])
+		doc := kv[0].V().(types.Document)
 
 		newEnv.SetDocument(doc)
 		return fn(&newEnv)

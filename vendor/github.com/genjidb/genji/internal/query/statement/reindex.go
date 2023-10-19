@@ -1,11 +1,9 @@
 package statement
 
 import (
+	errs "github.com/genjidb/genji/errors"
 	"github.com/genjidb/genji/internal/database"
-	errs "github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/stream"
-	"github.com/genjidb/genji/internal/stream/index"
-	"github.com/genjidb/genji/internal/stream/table"
 )
 
 // ReIndexStmt is a DSL that allows creating a full REINDEX statement.
@@ -57,12 +55,12 @@ func (stmt ReIndexStmt) Prepare(ctx *Context) (Statement, error) {
 			return nil, err
 		}
 
-		s := stream.New(table.Scan(info.Owner.TableName)).Pipe(index.IndexInsert(info.IndexName))
+		s := stream.New(stream.SeqScan(info.TableName)).Pipe(stream.IndexInsert(info.IndexName))
 		streams = append(streams, s)
 	}
 
 	st := StreamStmt{
-		Stream:   stream.New(stream.Concat(streams...)).Pipe(stream.Discard()),
+		Stream:   stream.New(stream.Concat(streams...)),
 		ReadOnly: false,
 	}
 

@@ -1,8 +1,9 @@
 package types
 
 import (
-	"fmt"
 	"math"
+
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // Add u to v and return the result.
@@ -63,7 +64,7 @@ func calculateValues(a, b Value, operator byte) (res Value, err error) {
 		return NewNullValue(), nil
 	}
 
-	if a.Type() == BooleanValue || b.Type() == BooleanValue {
+	if a.Type() == BoolValue || b.Type() == BoolValue {
 		return NewNullValue(), nil
 	}
 
@@ -82,10 +83,10 @@ func calculateIntegers(a, b Value, operator byte) (res Value, err error) {
 	var xa, xb int64
 
 	ia := convertNumberToInteger(a)
-	xa = As[int64](ia)
+	xa = ia.V().(int64)
 
 	ib := convertNumberToInteger(b)
-	xb = As[int64](ib)
+	xb = ib.V().(int64)
 
 	var xr int64
 
@@ -135,7 +136,7 @@ func calculateIntegers(a, b Value, operator byte) (res Value, err error) {
 	case '^':
 		return NewIntegerValue(xa ^ xb), nil
 	default:
-		panic(fmt.Sprintf("unknown operator %c", operator))
+		panic(stringutil.Sprintf("unknown operator %c", operator))
 	}
 }
 
@@ -143,10 +144,10 @@ func calculateFloats(a, b Value, operator byte) (res Value, err error) {
 	var xa, xb float64
 
 	fa := convertNumberToDouble(a)
-	xa = As[float64](fa)
+	xa = fa.V().(float64)
 
 	fb := convertNumberToDouble(b)
-	xb = As[float64](fb)
+	xb = fb.V().(float64)
 
 	switch operator {
 	case '+':
@@ -179,7 +180,7 @@ func calculateFloats(a, b Value, operator byte) (res Value, err error) {
 		ia, ib := int64(xa), int64(xb)
 		return NewIntegerValue(ia ^ ib), nil
 	default:
-		panic(fmt.Sprintf("unknown operator %c", operator))
+		panic(stringutil.Sprintf("unknown operator %c", operator))
 	}
 }
 
@@ -188,7 +189,7 @@ func convertNumberToInteger(v Value) Value {
 	case IntegerValue:
 		return v
 	default:
-		return NewIntegerValue(int64(As[float64](v)))
+		return NewIntegerValue(int64(v.V().(float64)))
 	}
 }
 
@@ -197,6 +198,6 @@ func convertNumberToDouble(v Value) Value {
 	case DoubleValue:
 		return v
 	default:
-		return NewDoubleValue(float64(As[int64](v)))
+		return NewDoubleValue(float64(v.V().(int64)))
 	}
 }

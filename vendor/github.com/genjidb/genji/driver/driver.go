@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji"
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/types"
 )
 
@@ -328,7 +328,6 @@ func (rs *documentStream) Columns() []string {
 // Close closes the rows iterator.
 func (rs *documentStream) Close() error {
 	rs.cancelFn()
-	rs.wg.Wait()
 	return rs.res.Close()
 }
 

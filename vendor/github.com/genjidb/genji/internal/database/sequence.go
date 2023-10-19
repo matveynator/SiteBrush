@@ -1,35 +1,43 @@
 package database
 
 import (
-	"fmt"
 	"strings"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
-	errs "github.com/genjidb/genji/internal/errors"
+	errs "github.com/genjidb/genji/errors"
+	"github.com/genjidb/genji/internal/errors"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/internal/tree"
 	"github.com/genjidb/genji/types"
 )
 
+const (
+	SequenceTableName = "__genji_sequence"
+)
+
 var sequenceTableInfo = &TableInfo{
-	TableName:      SequenceTableName,
-	StoreNamespace: SequenceTableNamespace,
-	FieldConstraints: MustNewFieldConstraints(
-		&FieldConstraint{
-			Position:  0,
-			Field:     "name",
-			Type:      types.TextValue,
-			IsNotNull: true,
+	TableName: SequenceTableName,
+	StoreName: []byte(SequenceTableName),
+	FieldConstraints: []*FieldConstraint{
+		{
+			Path: document.Path{
+				document.PathFragment{
+					FieldName: "name",
+				},
+			},
+			Type: types.TextValue,
 		},
-		&FieldConstraint{
-			Position: 1,
-			Field:    "seq",
-			Type:     types.IntegerValue,
+		{
+			Path: document.Path{
+				document.PathFragment{
+					FieldName: "seq",
+				},
+			},
+			Type: types.IntegerValue,
 		},
-	),
+	},
 	TableConstraints: []*TableConstraint{
 		{
-			Name: SequenceTableName + "_pk",
 			Paths: []document.Path{
 				document.NewPath("name"),
 			},
@@ -45,7 +53,7 @@ type Sequence struct {
 
 	CurrentValue *int64
 	Cached       uint64
-	Key          *tree.Key
+	Key          tree.Key
 }
 
 // NewSequence creates a new or existing sequence. If currentValue is not nil
@@ -65,13 +73,14 @@ func NewSequence(info *SequenceInfo, currentValue *int64) Sequence {
 	return seq
 }
 
-func (s *Sequence) key() *tree.Key {
+func (s *Sequence) key() (tree.Key, error) {
+	var err error
 	if s.Key != nil {
-		return s.Key
+		return s.Key, nil
 	}
 
-	s.Key = tree.NewKey(types.NewTextValue(s.Info.Name))
-	return s.Key
+	s.Key, err = tree.NewKey(types.NewTextValue(s.Info.Name))
+	return s.Key, err
 }
 
 func (s *Sequence) Init(tx *Transaction, catalog *Catalog) error {
@@ -94,7 +103,10 @@ func (s *Sequence) Drop(tx *Transaction, catalog *Catalog) error {
 		return err
 	}
 
-	k := s.key()
+	k, err := s.key()
+	if err != nil {
+		return err
+	}
 
 	return tb.Delete(k)
 }
@@ -113,14 +125,14 @@ func (s *Sequence) Next(tx *Transaction, catalog *Catalog) (int64, error) {
 
 	if newValue < s.Info.Min {
 		if !s.Info.Cycle {
-			return 0, fmt.Errorf("reached minimum value of sequence %s", s.Info.Name)
+			return 0, stringutil.Errorf("reached minimum value of sequence %s", s.Info.Name)
 		}
 
 		newValue = s.Info.Max
 	}
 	if newValue > s.Info.Max {
 		if !s.Info.Cycle {
-			return 0, fmt.Errorf("reached maximum value of sequence %s", s.Info.Name)
+			return 0, stringutil.Errorf("reached maximum value of sequence %s", s.Info.Name)
 		}
 
 		newValue = s.Info.Min
@@ -172,7 +184,10 @@ func (s *Sequence) SetLease(tx *Transaction, catalog *Catalog, name string, v in
 		return err
 	}
 
-	k := s.key()
+	k, err := s.key()
+	if err != nil {
+		return err
+	}
 
 	_, err = tb.Replace(k,
 		document.NewFieldBuffer().

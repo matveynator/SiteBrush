@@ -1,12 +1,12 @@
 package statement
 
 import (
+	"github.com/genjidb/genji/document"
+	"github.com/genjidb/genji/internal/environment"
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/sql/scanner"
 	"github.com/genjidb/genji/internal/stream"
-	"github.com/genjidb/genji/internal/stream/docs"
-	"github.com/genjidb/genji/internal/stream/index"
-	"github.com/genjidb/genji/internal/stream/table"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // DeleteConfig holds DELETE configuration.
@@ -33,36 +33,62 @@ func NewDeleteStatement() *DeleteStmt {
 }
 
 func (stmt *DeleteStmt) Prepare(c *Context) (Statement, error) {
-	s := stream.New(table.Scan(stmt.TableName))
+	s := stream.New(stream.SeqScan(stmt.TableName))
 
 	if stmt.WhereExpr != nil {
-		s = s.Pipe(docs.Filter(stmt.WhereExpr))
+		s = s.Pipe(stream.Filter(stmt.WhereExpr))
 	}
 
 	if stmt.OrderBy != nil {
 		if stmt.OrderByDirection == scanner.DESC {
-			s = s.Pipe(docs.TempTreeSortReverse(stmt.OrderBy))
+			s = s.Pipe(stream.TempTreeSortReverse(stmt.OrderBy))
 		} else {
-			s = s.Pipe(docs.TempTreeSort(stmt.OrderBy))
+			s = s.Pipe(stream.TempTreeSort(stmt.OrderBy))
 		}
 	}
 
 	if stmt.OffsetExpr != nil {
-		s = s.Pipe(docs.Skip(stmt.OffsetExpr))
+		v, err := stmt.OffsetExpr.Eval(&environment.Environment{})
+		if err != nil {
+			return nil, err
+		}
+
+		if !v.Type().IsNumber() {
+			return nil, stringutil.Errorf("offset expression must evaluate to a number, got %q", v.Type())
+		}
+
+		v, err = document.CastAsInteger(v)
+		if err != nil {
+			return nil, err
+		}
+
+		s = s.Pipe(stream.Skip(v.V().(int64)))
 	}
 
 	if stmt.LimitExpr != nil {
-		s = s.Pipe(docs.Take(stmt.LimitExpr))
+		v, err := stmt.LimitExpr.Eval(&environment.Environment{})
+		if err != nil {
+			return nil, err
+		}
+
+		if !v.Type().IsNumber() {
+			return nil, stringutil.Errorf("limit expression must evaluate to a number, got %q", v.Type())
+		}
+
+		v, err = document.CastAsInteger(v)
+		if err != nil {
+			return nil, err
+		}
+
+		s = s.Pipe(stream.Take(v.V().(int64)))
 	}
 
 	indexNames := c.Catalog.ListIndexes(stmt.TableName)
 	for _, indexName := range indexNames {
-		s = s.Pipe(index.Delete(indexName))
+		s = s.Pipe(stream.IndexDelete(indexName))
 	}
 
-	s = s.Pipe(table.Delete(stmt.TableName))
-
-	s = s.Pipe(stream.Discard())
+	s = s.Pipe(stream.TableDelete(stmt.TableName))
 
 	st := StreamStmt{
 		Stream:   s,

@@ -1,63 +1,42 @@
+//go:build !debug
+// +build !debug
+
+// Package errors provides a simple API to create and compare errors. A debug version of this package
+// exists, but captures stacktraces when error are created or wrapped. It is accessible through the
+// the "debug" build tag.
 package errors
 
 import (
-	"fmt"
+	baseErrors "errors"
 
-	"github.com/cockroachdb/errors"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
-// AlreadyExistsError is returned when to create a table, an index or a sequence
-// with a name that is already used by another resource.
-type AlreadyExistsError struct {
-	Name string
+// New takes a string and returns a standard error.
+func New(s string) error {
+	return baseErrors.New(s)
 }
 
-func (a AlreadyExistsError) Error() string {
-	return fmt.Sprintf("%q already exists", a.Name)
+// Errorf creates an error out of a string. If %w is used to format an error, it will
+// only wrap it by concatenation, the wrapped error won't be accessible directly and
+// thus cannot be accessed through the Is or As functions from the standard error package.
+func Errorf(format string, a ...interface{}) error {
+	return stringutil.Errorf(format, a...)
 }
 
-func IsAlreadyExistsError(err error) bool {
-	for err != nil {
-		switch err.(type) {
-		case *AlreadyExistsError, AlreadyExistsError:
-			return true
-		}
-		err = errors.Unwrap(err)
-	}
-
-	return false
+// Is performs a simple value comparison between err and original (==).
+func Is(err, original error) bool {
+	return err == original
 }
 
-// NotFoundError is returned when the requested table, index or sequence
-// doesn't exist.
-type NotFoundError struct {
-	Name string
+// Unwrap does nothing and just returns err.
+// This function only acts differently when the debug version of this function is used.
+func Unwrap(err error) error {
+	return err
 }
 
-func NewDocumentNotFoundError() error {
-	return NewNotFoundError("document")
-}
-
-func NewNotFoundError(name string) error {
-	return &NotFoundError{Name: name}
-}
-
-func (a NotFoundError) Error() string {
-	if a.Name == "document" {
-		return "document not found"
-	}
-
-	return fmt.Sprintf("%q not found", a.Name)
-}
-
-func IsNotFoundError(err error) bool {
-	for err != nil {
-		switch err.(type) {
-		case *NotFoundError, NotFoundError:
-			return true
-		}
-		err = errors.Unwrap(err)
-	}
-
-	return false
+// Wrap acts as the identity function, unless compiled with the debug tag.
+// See the debug version of this package for more.
+func Wrap(err error) error {
+	return err
 }

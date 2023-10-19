@@ -1,65 +1,54 @@
-/*
-Package genji implements a document-oriented, embedded SQL database.
-*/
 package genji
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
+	"github.com/genjidb/genji/engine"
+	errs "github.com/genjidb/genji/errors"
 	"github.com/genjidb/genji/internal/database"
 	"github.com/genjidb/genji/internal/database/catalogstore"
 	"github.com/genjidb/genji/internal/environment"
-	errs "github.com/genjidb/genji/internal/errors"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/query"
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/parser"
 	"github.com/genjidb/genji/internal/stream"
-	"github.com/genjidb/genji/internal/stream/docs"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
-// DB represents a collection of tables.
+// DB represents a collection of tables stored in the underlying engine.
 type DB struct {
 	DB  *database.Database
 	ctx context.Context
 }
 
-// Open creates a Genji database at the given path.
-// If path is equal to ":memory:" it will open an in-memory database,
-// otherwise it will create an on-disk database.
-func Open(path string) (*DB, error) {
-	return OpenWith(path, nil)
-}
-
-type Options struct {
-	// Experimental options. These options are subject to change and should not be used in production.
-	Experimental struct {
-		EncryptionKey []byte
-	}
-}
-
-// Open creates a Genji database at the given path.
-// If path is equal to ":memory:" it will open an in-memory database,
-// otherwise it will create an on-disk database.
-func OpenWith(path string, opts *Options) (*DB, error) {
-	if opts == nil {
-		opts = &Options{}
+func newDatabase(ctx context.Context, ng engine.Engine, opts database.Options) (*DB, error) {
+	db, err := database.New(ctx, ng, opts)
+	if err != nil {
+		return nil, err
 	}
 
-	db, err := database.Open(path, &database.Options{
-		CatalogLoader: catalogstore.LoadCatalog,
-		EncryptionKey: opts.Experimental.EncryptionKey,
-	})
+	tx, err := db.Begin(true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	err = catalogstore.LoadCatalog(tx, db.Catalog)
+	if err != nil {
+		return nil, err
+	}
+
+	err = tx.Commit()
 	if err != nil {
 		return nil, err
 	}
 
 	return &DB{
-		DB: db,
+		DB:  db,
+		ctx: ctx,
 	}, nil
 }
 
@@ -77,7 +66,7 @@ func (db *DB) Close() error {
 // Begin starts a new transaction.
 // The returned transaction must be closed either by calling Rollback or Commit.
 func (db *DB) Begin(writable bool) (*Tx, error) {
-	tx, err := db.DB.BeginTx(&database.TxOptions{
+	tx, err := db.DB.BeginTx(db.ctx, &database.TxOptions{
 		ReadOnly: !writable,
 	})
 	if err != nil {
@@ -259,35 +248,7 @@ func (s *Statement) Query(args ...interface{}) (*Result, error) {
 		return nil, err
 	}
 
-	return &Result{result: r, ctx: s.db.ctx}, nil
-}
-
-func argsToParams(args []interface{}) []environment.Param {
-	nv := make([]environment.Param, len(args))
-	for i := range args {
-		switch t := args[i].(type) {
-		case sql.NamedArg:
-			nv[i].Name = t.Name
-			nv[i].Value = t.Value
-		case *sql.NamedArg:
-			nv[i].Name = t.Name
-			nv[i].Value = t.Value
-		case driver.NamedValue:
-			nv[i].Name = t.Name
-			nv[i].Value = t.Value
-		case *driver.NamedValue:
-			nv[i].Name = t.Name
-			nv[i].Value = t.Value
-		case *environment.Param:
-			nv[i] = *t
-		case environment.Param:
-			nv[i] = t
-		default:
-			nv[i].Value = args[i]
-		}
-	}
-
-	return nv
+	return &Result{result: r}, nil
 }
 
 // QueryDocument runs the query and returns the first document.
@@ -318,7 +279,7 @@ func scanDocument(iter document.Iterator) (types.Document, error) {
 	}
 
 	if d == nil {
-		return nil, errors.WithStack(errs.NewDocumentNotFoundError())
+		return nil, errors.Wrap(errs.ErrDocumentNotFound)
 	}
 
 	fb := document.NewFieldBuffer()
@@ -347,22 +308,10 @@ func (s *Statement) Exec(args ...interface{}) (err error) {
 // Result of a query.
 type Result struct {
 	result *statement.Result
-	ctx    context.Context
 }
 
 func (r *Result) Iterate(fn func(d types.Document) error) error {
-	if r.ctx == nil {
-		return r.result.Iterate(fn)
-	}
-
-	return r.result.Iterate(func(d types.Document) error {
-		select {
-		case <-r.ctx.Done():
-			return r.ctx.Err()
-		default:
-			return fn(d)
-		}
-	})
+	return r.result.Iterate(fn)
 }
 
 func (r *Result) Fields() []string {
@@ -377,7 +326,7 @@ func (r *Result) Fields() []string {
 
 	// Search for the ProjectOperator. If found, extract the projected expression list
 	for op := stmt.Stream.First(); op != nil; op = op.GetNext() {
-		if po, ok := op.(*docs.ProjectOperator); ok {
+		if po, ok := op.(*stream.ProjectOperator); ok {
 			// if there are no projected expression, it's a wildcard
 			if len(po.Exprs) == 0 {
 				break
@@ -385,7 +334,7 @@ func (r *Result) Fields() []string {
 
 			fields := make([]string, len(po.Exprs))
 			for i := range po.Exprs {
-				fields[i] = po.Exprs[i].String()
+				fields[i] = stringutil.Sprintf("%s", po.Exprs[i])
 			}
 
 			return fields

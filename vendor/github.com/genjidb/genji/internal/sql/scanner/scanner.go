@@ -3,11 +3,11 @@ package scanner
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"strings"
 
-	"github.com/cockroachdb/errors"
+	"github.com/genjidb/genji/internal/errors"
+	"github.com/genjidb/genji/internal/stringutil"
 )
 
 // Code heavily inspired by the influxdata/influxql repository
@@ -65,19 +65,10 @@ func (s *scanner) Scan() (tok Token, pos Pos, lit string) {
 		return s.scanString()
 	case '.':
 		ch1, _ := s.r.read()
+		s.r.unread()
 		if isDigit(ch1) {
-			s.r.unread()
 			return s.scanNumber()
 		}
-		if ch1 == '.' {
-			ch2, _ := s.r.read()
-			if ch2 == '.' {
-				return ELLIPSIS, pos, "..."
-			}
-
-			return ILLEGAL, pos, ""
-		}
-		s.r.unread()
 		return DOT, pos, ""
 	case '$':
 		tok, _, lit := s.scanIdent(false)
@@ -550,7 +541,7 @@ func scanDelimited(r io.RuneScanner, start, end rune, escapes map[rune]rune, esc
 	if ch, _, err := r.ReadRune(); err != nil {
 		return nil, err
 	} else if ch != start {
-		return nil, fmt.Errorf("expected %s; found %s", string(start), string(ch))
+		return nil, stringutil.Errorf("expected %s; found %s", string(start), string(ch))
 	}
 
 	var buf bytes.Buffer
@@ -613,10 +604,6 @@ func scanString(r io.RuneReader) (string, error) {
 			ch1, _, _ := r.ReadRune()
 			if ch1 == 'n' {
 				_, _ = buf.WriteRune('\n')
-			} else if ch1 == 'r' {
-				_, _ = buf.WriteRune('\r')
-			} else if ch1 == 't' {
-				_, _ = buf.WriteRune('\t')
 			} else if ch1 == '\\' {
 				_, _ = buf.WriteRune('\\')
 			} else if ch1 == '"' {
@@ -649,7 +636,7 @@ func scanBareIdent(r io.RuneScanner) string {
 		if err != nil {
 			break
 		} else if !isIdentChar(ch) {
-			_ = r.UnreadRune()
+			r.UnreadRune()
 			break
 		} else {
 			_, _ = buf.WriteRune(ch)

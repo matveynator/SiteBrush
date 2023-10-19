@@ -2,16 +2,16 @@ package parser
 
 import (
 	"encoding/hex"
-	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/cockroachdb/errors"
 	"github.com/genjidb/genji/document"
 	"github.com/genjidb/genji/internal/environment"
+	"github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/expr/functions"
 	"github.com/genjidb/genji/internal/sql/scanner"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
@@ -104,9 +104,9 @@ func (p *Parser) parseOperator(minPrecedence int, allowed ...scanner.Token) (fun
 		if tok.Precedence() >= minPrecedence {
 			switch {
 			case tok == scanner.IN && tok.Precedence() >= minPrecedence:
-				return expr.NotIn, scanner.NIN, nil
+				return expr.NotIn, op, nil
 			case tok == scanner.LIKE && tok.Precedence() >= minPrecedence:
-				return expr.NotLike, scanner.NLIKE, nil
+				return expr.NotLike, op, nil
 			}
 		}
 
@@ -155,7 +155,7 @@ func (p *Parser) parseOperator(minPrecedence int, allowed ...scanner.Token) (fun
 		return expr.In, op, nil
 	case scanner.IS:
 		if tok, _, _ := p.ScanIgnoreWhitespace(); tok == scanner.NOT {
-			return expr.IsNot, scanner.ISN, nil
+			return expr.IsNot, op, nil
 		}
 		p.Unscan()
 		return expr.Is, op, nil
@@ -195,39 +195,33 @@ func (p *Parser) parseUnaryExpr(allowed ...scanner.Token) (expr.Expr, error) {
 		p.Unscan()
 		return p.parseCastExpression()
 	case scanner.IDENT:
-		tok1, _, _ := p.ScanIgnoreWhitespace()
+		tok1, _, _ := p.Scan()
 		// if the next token is a left parenthesis, this is a global function
 		if tok1 == scanner.LPAREN {
 			p.Unscan()
-			if tk, _, _ := p.s.Curr(); tk == scanner.WS {
-				p.Unscan()
-			}
 			p.Unscan()
 			return p.parseFunction()
-		} else if tok1 == scanner.DOT {
+		} else {
 			// it may be a package function instead.
-			if tok2, _, _ := p.Scan(); tok2 == scanner.IDENT {
-				if tok3, _, _ := p.Scan(); tok3 == scanner.LPAREN {
-					p.Unscan()
-					p.Unscan()
-					p.Unscan()
-					p.Unscan()
-					return p.parseFunction()
+			if tok1 == scanner.DOT {
+				if tok2, _, _ := p.Scan(); tok2 == scanner.IDENT {
+					if tok3, _, _ := p.Scan(); tok3 == scanner.LPAREN {
+						p.Unscan()
+						p.Unscan()
+						p.Unscan()
+						p.Unscan()
+						return p.parseFunction()
+					} else {
+						p.Unscan()
+						p.Unscan()
+					}
 				} else {
 					p.Unscan()
-					p.Unscan()
 				}
-			} else {
-				p.Unscan()
 			}
 		}
 		p.Unscan()
-		if tk, _, _ := p.s.Curr(); tk == scanner.WS {
-			p.Unscan()
-		}
-
 		p.Unscan()
-
 		field, err := p.parsePath()
 		if err != nil {
 			return nil, err
@@ -236,16 +230,16 @@ func (p *Parser) parseUnaryExpr(allowed ...scanner.Token) (expr.Expr, error) {
 		return fs, nil
 	case scanner.NAMEDPARAM:
 		if len(lit) == 1 {
-			return nil, errors.WithStack(&ParseError{Message: "missing param name"})
+			return nil, errors.Wrap(&ParseError{Message: "missing param name"})
 		}
 		if p.orderedParams > 0 {
-			return nil, errors.WithStack(&ParseError{Message: "cannot mix positional arguments with named arguments"})
+			return nil, errors.Wrap(&ParseError{Message: "cannot mix positional arguments with named arguments"})
 		}
 		p.namedParams++
 		return expr.NamedParam(lit[1:]), nil
 	case scanner.POSITIONALPARAM:
 		if p.namedParams > 0 {
-			return nil, errors.WithStack(&ParseError{Message: "cannot mix positional arguments with named arguments"})
+			return nil, errors.Wrap(&ParseError{Message: "cannot mix positional arguments with named arguments"})
 		}
 		p.orderedParams++
 		return expr.PositionalParam(p.orderedParams), nil
@@ -254,7 +248,7 @@ func (p *Parser) parseUnaryExpr(allowed ...scanner.Token) (expr.Expr, error) {
 			blob, err := hex.DecodeString(lit[2:])
 			if err != nil {
 				if bt, ok := err.(hex.InvalidByteError); ok {
-					return nil, fmt.Errorf("invalid hexadecimal digit: %c", bt)
+					return nil, stringutil.Errorf("invalid hexadecimal digit: %c", bt)
 				}
 
 				return nil, err
@@ -265,14 +259,14 @@ func (p *Parser) parseUnaryExpr(allowed ...scanner.Token) (expr.Expr, error) {
 	case scanner.NUMBER:
 		v, err := strconv.ParseFloat(lit, 64)
 		if err != nil {
-			return nil, errors.WithStack(&ParseError{Message: "unable to parse number", Pos: pos})
+			return nil, errors.Wrap(&ParseError{Message: "unable to parse number", Pos: pos})
 		}
 		return expr.LiteralValue{Value: types.NewDoubleValue(v)}, nil
 	case scanner.ADD, scanner.SUB:
 		sign := tok
 		tok, pos, lit = p.Scan()
 		if tok != scanner.NUMBER && tok != scanner.INTEGER {
-			return nil, errors.WithStack(&ParseError{Message: "syntax error", Pos: pos})
+			return nil, errors.Wrap(&ParseError{Message: "syntax error", Pos: pos})
 		}
 		if sign == scanner.SUB {
 			lit = "-" + lit
@@ -285,7 +279,7 @@ func (p *Parser) parseUnaryExpr(allowed ...scanner.Token) (expr.Expr, error) {
 			if v, err := strconv.ParseFloat(lit, 64); err == nil {
 				return expr.LiteralValue{Value: types.NewDoubleValue(v)}, nil
 			}
-			return nil, errors.WithStack(&ParseError{Message: "unable to parse integer", Pos: pos})
+			return nil, errors.Wrap(&ParseError{Message: "unable to parse integer", Pos: pos})
 		}
 		return expr.LiteralValue{Value: types.NewIntegerValue(v)}, nil
 	case scanner.TRUE, scanner.FALSE:
@@ -407,16 +401,16 @@ func (p *Parser) parseParam() (expr.Expr, error) {
 	switch tok {
 	case scanner.NAMEDPARAM:
 		if len(lit) == 1 {
-			return nil, errors.WithStack(&ParseError{Message: "missing param name"})
+			return nil, errors.Wrap(&ParseError{Message: "missing param name"})
 		}
 		if p.orderedParams > 0 {
-			return nil, errors.WithStack(&ParseError{Message: "cannot mix positional arguments with named arguments"})
+			return nil, errors.Wrap(&ParseError{Message: "cannot mix positional arguments with named arguments"})
 		}
 		p.namedParams++
 		return expr.NamedParam(lit[1:]), nil
 	case scanner.POSITIONALPARAM:
 		if p.namedParams > 0 {
-			return nil, errors.WithStack(&ParseError{Message: "cannot mix positional arguments with named arguments"})
+			return nil, errors.Wrap(&ParseError{Message: "cannot mix positional arguments with named arguments"})
 		}
 		p.orderedParams++
 		return expr.PositionalParam(p.orderedParams), nil
@@ -428,14 +422,14 @@ func (p *Parser) parseParam() (expr.Expr, error) {
 func (p *Parser) parseType() (types.ValueType, error) {
 	tok, pos, lit := p.ScanIgnoreWhitespace()
 	switch tok {
-	case scanner.TYPEANY:
-		return types.AnyValue, nil
 	case scanner.TYPEARRAY:
 		return types.ArrayValue, nil
-	case scanner.TYPEBLOB, scanner.TYPEBYTES:
+	case scanner.TYPEBLOB:
 		return types.BlobValue, nil
-	case scanner.TYPEBOOL, scanner.TYPEBOOLEAN:
-		return types.BooleanValue, nil
+	case scanner.TYPEBOOL:
+		return types.BoolValue, nil
+	case scanner.TYPEBYTES:
+		return types.BlobValue, nil
 	case scanner.TYPEDOCUMENT:
 		return types.DocumentValue, nil
 	case scanner.TYPEREAL:

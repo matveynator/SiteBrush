@@ -1,8 +1,6 @@
 package parser
 
 import (
-	"github.com/cockroachdb/errors"
-
 	"github.com/genjidb/genji/internal/query/statement"
 	"github.com/genjidb/genji/internal/sql/scanner"
 )
@@ -20,7 +18,7 @@ func (p *Parser) parseDeleteStatement() (statement.Statement, error) {
 	// Parse table name
 	stmt.TableName, err = p.parseIdent()
 	if err != nil {
-		pErr := errors.Unwrap(err).(*ParseError)
+		pErr := err.(*ParseError)
 		pErr.Expected = []string{"table_name"}
 		return nil, pErr
 	}

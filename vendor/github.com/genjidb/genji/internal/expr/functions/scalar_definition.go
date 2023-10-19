@@ -1,16 +1,16 @@
 package functions
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/genjidb/genji/internal/environment"
 	"github.com/genjidb/genji/internal/expr"
+	"github.com/genjidb/genji/internal/stringutil"
 	"github.com/genjidb/genji/types"
 )
 
 // A ScalarDefinition is the definition type for functions which operates on scalar values in contrast to other SQL functions
-// such as the SUM aggregator which operates on expressions instead.
+// such as the SUM aggregator wich operates on expressions instead.
 //
 // This difference allows to simply define them with a CallFn function that takes multiple document.Value and
 // return another types.Value, rather than having to manually evaluate expressions (see Definition).
@@ -33,15 +33,15 @@ func (fd *ScalarDefinition) Name() string {
 func (fd *ScalarDefinition) String() string {
 	args := make([]string, 0, fd.arity)
 	for i := 0; i < fd.arity; i++ {
-		args = append(args, fmt.Sprintf("arg%d", i+1))
+		args = append(args, stringutil.Sprintf("arg%d", i+1))
 	}
-	return fmt.Sprintf("%s(%s)", fd.name, strings.Join(args, ", "))
+	return stringutil.Sprintf("%s(%s)", fd.name, strings.Join(args, ", "))
 }
 
 // Function returns a Function expr node.
 func (fd *ScalarDefinition) Function(args ...expr.Expr) (expr.Function, error) {
 	if len(args) != fd.arity {
-		return nil, fmt.Errorf("%s takes %d argument(s), not %d", fd.String(), fd.arity, len(args))
+		return nil, stringutil.Errorf("%s takes %d argument(s), not %d", fd.String(), fd.arity, len(args))
 	}
 	return &ScalarFunction{
 		params: args,
@@ -86,7 +86,7 @@ func (sf *ScalarFunction) evalParams(env *environment.Environment) ([]types.Valu
 
 // String returns a string represention of the function expression and its arguments.
 func (sf *ScalarFunction) String() string {
-	return fmt.Sprintf("%s(%v)", sf.def.name, sf.params)
+	return stringutil.Sprintf("%s(%v)", sf.def.name, sf.params)
 }
 
 // Params return the function arguments.

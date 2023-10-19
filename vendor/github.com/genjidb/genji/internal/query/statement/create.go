@@ -3,11 +3,9 @@ package statement
 import (
 	"math"
 
+	errs "github.com/genjidb/genji/errors"
 	"github.com/genjidb/genji/internal/database"
-	errs "github.com/genjidb/genji/internal/errors"
 	"github.com/genjidb/genji/internal/stream"
-	"github.com/genjidb/genji/internal/stream/index"
-	"github.com/genjidb/genji/internal/stream/table"
 )
 
 // CreateTableStmt represents a parsed CREATE TABLE statement.
@@ -56,8 +54,9 @@ func (stmt *CreateTableStmt) Run(ctx *Context) (Result, error) {
 	for _, tc := range stmt.Info.TableConstraints {
 		if tc.Unique {
 			err = ctx.Catalog.CreateIndex(ctx.Tx, &database.IndexInfo{
-				Paths:  tc.Paths,
-				Unique: true,
+				TableName: stmt.Info.TableName,
+				Paths:     tc.Paths,
+				Unique:    true,
 				Owner: database.Owner{
 					TableName: stmt.Info.TableName,
 					Paths:     tc.Paths,
@@ -98,9 +97,7 @@ func (stmt *CreateIndexStmt) Run(ctx *Context) (Result, error) {
 		return res, err
 	}
 
-	s := stream.New(table.Scan(stmt.Info.Owner.TableName)).
-		Pipe(index.IndexInsert(stmt.Info.IndexName)).
-		Pipe(stream.Discard())
+	s := stream.New(stream.SeqScan(stmt.Info.TableName)).Pipe(stream.IndexInsert(stmt.Info.IndexName))
 
 	ss := PreparedStreamStmt{
 		Stream:   s,

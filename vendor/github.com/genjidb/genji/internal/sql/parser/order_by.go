@@ -1,8 +1,6 @@
 package parser
 
 import (
-	"errors"
-
 	"github.com/genjidb/genji/internal/expr"
 	"github.com/genjidb/genji/internal/sql/scanner"
 )
@@ -36,19 +34,6 @@ func (p *Parser) parseLimit() (expr.Expr, error) {
 	}
 
 	e, err := p.ParseExpr()
-	if err != nil {
-		return nil, err
-	}
-
-	expr.Walk(e, func(e expr.Expr) bool {
-		switch e.(type) {
-		case expr.AggregatorBuilder:
-			err = errors.New("aggregator functions are not allowed in LIMIT clause")
-			return false
-		}
-		return true
-	})
-
 	return e, err
 }
 
@@ -59,18 +44,5 @@ func (p *Parser) parseOffset() (expr.Expr, error) {
 	}
 
 	e, err := p.ParseExpr()
-	if err != nil {
-		return nil, err
-	}
-
-	expr.Walk(e, func(e expr.Expr) bool {
-		switch e.(type) {
-		case expr.AggregatorBuilder:
-			err = errors.New("aggregator functions are not allowed in OFFSET clause")
-			return false
-		}
-		return true
-	})
-
 	return e, err
 }
