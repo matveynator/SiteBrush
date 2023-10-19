@@ -22,7 +22,7 @@ func Run(config Config.Settings) {
   w.SetTitle(config.APP_NAME)
   w.SetSize(800, 600, webview.HintNone)
   //w.Navigate(config.LOCALHOST_LISTENER_ADDRESS)
-  w.Navigate(fmt.Sprintf("http://%s?edit=true&%s=%s", config.LOCALHOST_LISTENER_ADDRESS, config.APP_NAME, config.VERSION))
+  w.Navigate(fmt.Sprintf("http://%s", config.LOCALHOST_LISTENER_ADDRESS))
   // Запускаем окно WebView
   w.Run()
 }

@@ -2,6 +2,7 @@ package webserver
 
 import (
   "fmt"
+  "log"
   "strings"
   "net/http"
   "os"
@@ -86,8 +87,10 @@ func handleRequest(config Config.Settings, responseWriter http.ResponseWriter, r
     // Это файл; вы можете обработать его по-другому, если нужно
     fileName = fmt.Sprintf("%s%s", config.WEB_FILE_PATH, fileName)
   }
-
+  
   queryParam := request.URL.RawQuery
+
+  log.Println(request.URL)
 
   switch {
   case checkFileExist(fileName) && queryParam == "":

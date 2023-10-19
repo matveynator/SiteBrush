@@ -1,3 +1,6 @@
 sitebrush.*.db.genji
 sitebrush.*.db.sqlite
 binaries
+public_html
+sitebrush
+sitebrush-with-gui
