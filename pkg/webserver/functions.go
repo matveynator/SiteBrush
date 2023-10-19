@@ -4,7 +4,6 @@ import (
   "fmt"
   "net/http"
   "os"
-  "strings"
 )
 
 // isFileExist проверяет, существует ли файл в локальной директории.
@@ -13,8 +12,8 @@ func isFileExist(fileName string) bool {
   return !os.IsNotExist(err)
 }
 
-// isUserLoggedIn проверяет, залогинен ли пользователь.
-func isUserLoggedIn(request *http.Request) bool {
+// checkUserLoggedIn проверяет, залогинен ли пользователь.
+func checkUserLoggedIn(request *http.Request) bool {
   // Здесь должна быть реализация проверки
   return true
 }
@@ -26,7 +25,13 @@ func loginFunction(responseWriter http.ResponseWriter, request *http.Request) {
 }
 
 // editFunction обрабатывает запросы на редактирование файла.
-func editFunction(responseWriter http.ResponseWriter, request *http.Request, fileName string) {}
+func editFunction(responseWriter http.ResponseWriter, request *http.Request, fileName string) {
+  if checkUserLoggedIn(request) {
+    fmt.Fprint(responseWriter, "Edit Function")
+  } else {
+    fmt.Fprint(responseWriter, "Not authorized to edit this page")
+  }
+}
 
 // deleteRevisionFunction обрабатывает запросы на удаление последней ревизии файла.
 func deleteRevisionFunction(responseWriter http.ResponseWriter, request *http.Request, fileName string) {}
@@ -55,45 +60,46 @@ func showProfileFunction(responseWriter http.ResponseWriter, request *http.Reque
 // logoutFunction обрабатывает запросы на выход из учетной записи.
 func logoutFunction(responseWriter http.ResponseWriter, request *http.Request) {}
 
-// handleRequest обрабатывает входящие HTTP-запросы и перенаправляет их к соответствующим функциям обработки.
+
 func handleRequest(responseWriter http.ResponseWriter, request *http.Request) {
   fileName := request.URL.Path[1:] // Получение имени файла из URL
+  queryParam := request.URL.RawQuery
 
   switch {
-  case isFileExist(fileName) && !strings.HasSuffix(request.URL.RawQuery, "?"):
+  case isFileExist(fileName) && queryParam == "":
     http.ServeFile(responseWriter, request, fileName)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?login"):
+  case queryParam == "login":
     loginFunction(responseWriter, request)
 
-  case isFileExist(fileName) && strings.HasSuffix(request.URL.RawQuery, "?edit") && isUserLoggedIn(request):
+  case queryParam == "edit":
     editFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && strings.HasSuffix(request.URL.RawQuery, "?delete") && isUserLoggedIn(request):
+  case isFileExist(fileName) && queryParam == "delete":
     deleteRevisionFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && strings.HasSuffix(request.URL.RawQuery, "?revisions") && isUserLoggedIn(request):
+  case isFileExist(fileName) && queryParam == "revisions":
     showRevisionsFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && strings.HasSuffix(request.URL.RawQuery, "?subpages") && isUserLoggedIn(request):
+  case isFileExist(fileName) && queryParam == "subpages":
     showSubpagesFunction(responseWriter, request, fileName)
 
-  case isFileExist(fileName) && strings.HasSuffix(request.URL.RawQuery, "?properties") && isUserLoggedIn(request):
+  case isFileExist(fileName) && queryParam == "properties":
     editPropertiesFunction(responseWriter, request, fileName)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?freeze") && isUserLoggedIn(request):
+  case queryParam == "freeze" && checkUserLoggedIn(request):
     freezeSiteFunction(responseWriter, request)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?unfreeze") && isUserLoggedIn(request):
+  case queryParam == "unfreeze" && checkUserLoggedIn(request):
     unfreezeSiteFunction(responseWriter, request)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?backup") && isUserLoggedIn(request):
+  case queryParam == "backup" && checkUserLoggedIn(request):
     backupSiteFunction(responseWriter, request)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?profile") && isUserLoggedIn(request):
+  case queryParam == "profile" && checkUserLoggedIn(request):
     showProfileFunction(responseWriter, request)
 
-  case strings.HasSuffix(request.URL.RawQuery, "?logout") && isUserLoggedIn(request):
+  case queryParam == "logout" && checkUserLoggedIn(request):
     logoutFunction(responseWriter, request)
 
   default:
