@@ -19,11 +19,14 @@ Creating a blog or web page should be easy. SiteBrush makes it happen by streaml
 * Tedious changes across multiple pages.
 * Collaboration challenges.
 
-**SiteBrush Advantages:**
-* **Visual and Code:** Edit in visual and text mode.
-* **Revisions:** Versions of your edits.
-* **Dynamic site made of static files:** Edit dynamicaly - save to static files.
-* **Effortless Updates:** Modify elements across pages effortlessly.
-* **Automatic File Integration:** Seamlessly integrate any external files.
-* **URL Management:** Automatically save old and new page URLs.
-* **Freeze Feature:** Preview changes privately before publishing.
+**Advantages of SiteBrush:**
+* **Visual and Code Editing:** Make changes in both visual and text mode.
+* **Revision Control:** Keep track of versions for your edits.
+* **Dynamic Site Built from Static Files:** Edit dynamically and save changes to static files.
+* **Effortless Updates – Think "Templates":** Easily modify thousands of identical elements across pages.
+* **Automatic File Integration:** Seamlessly integrate all external files.
+* **Eliminate 404 errors:** Automatically preserve old and new page URLs .
+* **Freeze Feature:** Privately preview changes before publishing.
+* **Backup:** Save backups of your content in static full page archive.
+
+
