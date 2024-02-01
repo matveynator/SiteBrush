@@ -1,37 +1,37 @@
-# SiteBrush: Элегантный инструмент редактирования веб-страниц.
+# SiteBrush: An Elegant Web Page Editing Tool.
 
 <img src='https://repository-images.githubusercontent.com/429163995/331b95fa-4309-4d25-8c1a-0e8f34ff7b25' align="right">
 
-## Демонстрация: [sitebrush.com](http://sitebrush.com)
-## Загрузить: [download](http://files.matveynator.ru/sitebrush/latest/)
+## Demo: [sitebrush.com](http://sitebrush.com)
+## Download: [download](http://files.matveynator.ru/sitebrush/latest/)
 
-Мы искренне верим, что каждый должен иметь возможность модифицировать свой веб-ресурс, не загружая свой разум избыточными деталями, такими как параметры FTP, особенности разнообразных CMS, принципы работы с шаблонами и другие технические аспекты, которые часто становятся головной болью для веб-разработчиков. В то время как никто не запрещает Вам осваивать все эти нюансы, SiteBrush призван облегчить решение рутиных задач, позволяя Вам фокусироваться на... творческом процессе.
+We sincerely believe that everyone should have the ability to modify their website without burdening their minds with unnecessary details such as FTP parameters, the intricacies of various CMS, template handling, and other technical aspects that often become headaches for web developers. While no one prohibits you from mastering all these nuances, SiteBrush is designed to ease the resolution of routine tasks, allowing you to focus on the creative process.
 
-Современные динамические вебсайты, создаваемые на базе популярных CMS, утратили некоторые преимущества классических статических вебстраниц, которые редактировались при помощи инструментов вроде html редакторов или даже простых текстовых редакторов. 
+Modern dynamic websites, built on popular CMS, have lost some advantages of classic static web pages edited using tools like HTML editors or even simple text editors.
 
-Наиболее заметные неудобства динамических вебсайтов:
+The most noticeable drawbacks of dynamic websites:
 
-* Невозможность видеть итоговый результат в процессе редактирования, так как изменения вносятся в отдельные части: шаблоны или контент.
-* Необходимость освоения спецификации используемого шаблона и понимание сложной разметки шаблонов.
-* Ограниченные возможности кастомизации дизайна каждой страницы.
-* Схожесть многих дизайнов из-за сложности модификации готовых шаблонов.
-* Динамические вебсайты обычно требуют значительно больше ресурсов чем статические сайты и работают медленнее. Динамический вебсайт может обслуживать от 10 до 500 пользователей одновременно, в то время как статический вебсайт будет обслуживать 10000-50000+ пользователй одновременно, не теряя производительности. 
-* **И самая важная проблема заключается в том, что динамические вебсайты более уязвимы для нарушителей и могут быть использованы в целях, отличных от предназначенных. Требуется глубокое понимание нюансов применяемых языков программирования, чтобы надежно обезопасить свой интернет-ресурс от нежелательных вмешательств.**
+* Inability to see the final result during editing, as changes are made to separate parts: templates or content.
+* The need to master the specification of the used template and understand the complex markup of templates.
+* Limited customization options for the design of each page.
+* Similarity of many designs due to the complexity of modifying ready-made templates.
+* Dynamic websites usually require significantly more resources than static sites and operate more slowly. A dynamic website can serve 10 to 500 users simultaneously, while a static website will serve 10,000 to 50,000+ users simultaneously without losing performance.
+* **The most important issue is that dynamic websites are more vulnerable to attackers and can be used for purposes other than intended. A deep understanding of the nuances of applied programming languages is required to reliably secure your internet resource from unwanted interventions.**
 
-С другой стороны, статические вебсайты, также имеют свои слабые стороны:
+On the other hand, static websites also have their weaknesses:
 
-* Необходимость загрузки, редактирования и повторной загрузки каждой страницы, а также освоение таких технологий, как FTP.
-* Трудоемкость изменения одного элемента на множестве страниц.
-* Отсутствие возможности совместной работы над сайтом или редактирования с различных устройств.
+* The need to upload, edit, and reload each page, as well as master technologies such as FTP.
+* The complexity of changing one element on multiple pages.
+* Lack of the ability to collaborate on the site or edit from different devices.
 
-Именно поэтому мы создали SiteBrush, объединивший преимущества обоих подходов. Этот инструмент, первоначально разработанный для наших собственных нужд, непременно придется вам по душе.
+This is why we created SiteBrush, combining the advantages of both approaches. This tool, originally developed for our own needs, is sure to appeal to you.
 
-## Скриншоты:
+## Screenshots:
 
 <img src="http://sitebrush.com/f/389b73b76b94f91f86fd942b64ee4686.png" width="400"> <img src="http://sitebrush.com/f/1056d0a4560056ede806c06ed818bd1e.png" width="400">
 
-## Эксклюзивные возможности SiteBrush:
-* **Магическое свойство 1**: "Повторяющиеся элементы" - возможность автоматического обновления одних и тех же элементов на разных страницах.
-* **Магическое свойство 2**: "Автоматический импорт файлов" - автоматическая интеграция всех внешних файлов, связанных со страницей, в ваш сайт.
-* **Магическое свойство 3**: Автоматическое сохранение старых и новых URL-адресов страницы, исключая ошибки "404".
-* **Магическое свойство 4**: "Заморозка" - возможность вносить изменения, видимые только для вас, до их окончательной публикации.
+## Exclusive Features of SiteBrush:
+* **Magic Feature 1**: "Repeating Elements" - the ability to automatically update the same elements on different pages.
+* **Magic Feature 2**: "Automatic File Import" - automatic integration of all external files associated with the page into your site.
+* **Magic Feature 3**: Automatic saving of old and new page URLs, excluding "404" errors.
+* **Magic Feature 4**: "Freeze" - the ability to make changes visible only to you before their final publication.
